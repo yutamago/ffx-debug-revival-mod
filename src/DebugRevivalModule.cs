@@ -60,6 +60,8 @@ public sealed class DebugRevivalModule : FhModule {
         ok &= report(_field.init(this),   "noclip");
         ok &= report(_log.init(this),     "debug log");
         ok &= report(_gu.init(this),      "PS2 debug menu");
+        _flag.hooks_ok = _flag.init(this);
+        report(_flag.hooks_ok, "debug flag's map-part guard (the flag stays off)");
 
         FhApi.Events.Common.GameLoop.PreUpdate.subscribe(pre_update);
         FhApi.Events.Common.GameLoop.PostUpdate.subscribe(post_update);

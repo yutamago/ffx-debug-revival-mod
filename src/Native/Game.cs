@@ -35,6 +35,10 @@ public static class D {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate ushort RetUShortFn();
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint UShortUIntToPtrFn(ushort a, uint b);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint Rect8Fn(uint a1, uint a2, uint a3, uint a4, uint a5, uint a6, uint a7, uint a8);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint Rect7Fn(uint a1, uint a2, uint a3, uint a4, uint a5, uint a6, uint a7);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint RectBuildFn(nint render, uint a1, uint a2, uint a3, uint a4, uint a5, uint a6, uint a7, uint unlimited);
+
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisFn(nint self);
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisUIntUIntFn(nint self, uint a, uint b);
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisIntFn(nint self, int a);
@@ -103,6 +107,14 @@ public static class Calls {
     // ---- the debug flag ----
     public static FhCallHandle<D.VoidFn> Sg_DbInitAll  => h<D.VoidFn>(0x00841440);
     public static FhCallHandle<D.VoidFn> initEventList => h<D.VoidFn>(0x00907f50);
+
+    // ---- the field map's part selection (debug flag: "unlimited" overruns its buffers) ----
+    /// <summary>cdecl (a1..a7, unlimited-if-debug) -> chains: yiRectToOMDBuild(&amp;g_YiRender, a1..a7, debug ? a8 : 0).</summary>
+    public static FhCallHandle<D.Rect8Fn> yiRectToOMD => h<D.Rect8Fn>(0x00909d30);
+    /// <summary>cdecl (a1..a7) -> chains: yiRectToOMDBuild(&amp;g_YiRender, a1..a7, debug ? 1 : 0).</summary>
+    public static FhCallHandle<D.Rect7Fn> yiRectToOMD_old => h<D.Rect7Fn>(0x00909dd0);
+    public static FhCallHandle<D.RectBuildFn> yiRectToOMDBuild => h<D.RectBuildFn>(0x00912270);
+    public const uint g_YiRender = 0x01876e00;
 
     // ---- panel text ----
     /// <summary>thiscall (TextUtil*, w, h): rebuilds the panel text's matrix from its scale/position fields.</summary>

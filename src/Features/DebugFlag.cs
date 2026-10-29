@@ -24,7 +24,35 @@ public sealed unsafe class DebugFlag {
     /// <summary>The flag as last read on the game thread.</summary>
     public volatile bool on;
 
+    /// <summary>
+    ///     Keeps the field map's part selection capped while the flag is on.
+    ///     With the flag, yiRectToOMD and yiRectToOMD_old pass "unlimited" to
+    ///     yiRectToOMDBuild, which then ignores the packet and vertex caps and
+    ///     writes past its heap buffers; the heap fails a moment later (the
+    ///     crash seen when the flag went on). Both wrappers are replaced by
+    ///     the release behaviour: the same call with unlimited = 0.
+    /// </summary>
+    public bool init(FhModule owner) =>
+        Calls.yiRectToOMD.hook(owner, h_rect) && Calls.yiRectToOMD_old.hook(owner, h_rect_old);
+
+    private D.RectBuildFn? _build;
+
+    [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
+    private uint h_rect(uint a1, uint a2, uint a3, uint a4, uint a5, uint a6, uint a7, uint a8) {
+        _build ??= Calls.yiRectToOMDBuild.fnptr!;
+        return _build(Mem.at(Calls.g_YiRender), a1, a2, a3, a4, a5, a6, a7, 0);
+    }
+
+    [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
+    private uint h_rect_old(uint a1, uint a2, uint a3, uint a4, uint a5, uint a6, uint a7) {
+        _build ??= Calls.yiRectToOMDBuild.fnptr!;
+        return _build(Mem.at(Calls.g_YiRender), a1, a2, a3, a4, a5, a6, a7, 0);
+    }
+
+    public bool hooks_ok = true;
+
     public void set(bool value, TweakPanels panels) => GameThread.post(value ? "debug flag on" : "debug flag off", () => {
+        if (value && !hooks_ok) { GameThread.last_status = "the debug flag stays off: its safety hook is not installed"; return; }
         if (value) {
             Mem.set_u8(G.FFXIsDebug, 1);
             if (!_buffer_made) { Calls.Sg_DbInitAll.fnptr!(); _buffer_made = true; }
