@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- Prints the mod's disassembly of a script file in `ffx script disasm` format,
+         so tools/disasm-check.sh can compare it with the Rust disassembler. -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>Yuta.DebugRevival.Tools</RootNamespace>
+    </PropertyGroup>
+    <ItemGroup>
+        <Compile Include="../../src/Script/Opcodes.cs" />
+        <Compile Include="../../src/Script/Disassembler.cs" />
+        <Compile Include="../../src/Script/NativeNames.cs" />
+    </ItemGroup>
+</Project>
