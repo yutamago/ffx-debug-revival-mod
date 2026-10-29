@@ -13,4 +13,5 @@ global using System.Text;
 global using System.Threading;
 
 global using Fahrenheit;
+global using Fahrenheit.Events;
 global using Hexa.NET.ImGui;
