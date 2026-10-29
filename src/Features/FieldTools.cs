@@ -31,6 +31,28 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
     private static readonly (int pair, uint bit, uint key)[] CAMERA_PAIRS = [ (30, 0x40000, KEY_F10), (32, 0x100000, KEY_F11) ];
     private const uint FLY_BIT = 0x40000;
 
+    /// <summary>
+    ///     Whether the PC port can name the map's script file. The event loader
+    ///     (AtelEventSetUp -> TkCdReadWithMallocWithMessage(0xc, map * 0x12) ->
+    ///     Cd_QueueRead) copies the name CDfileName_PC returns without a NULL
+    ///     check, so a map whose entry in the PC name table (cdrom.fnd, at
+    ///     g_CdLib+0x30) is empty crashes the game. 54 of the 402 maps, mostly
+    ///     test events, have no entry. The entry is the event module's first
+    ///     file (i16 table at g_CdLib+0x2c, module 0xc) + map * 0x12; it is
+    ///     present when its end offset is past its start. Read-only.
+    /// </summary>
+    internal static bool script_name_present(int map) {
+        const uint CD_LIB = 0x02310c40;
+        nint names = *(nint*)Mem.at(CD_LIB + 0x30);
+        if (names == 0) return true;                       // HDD mode: names are not used
+        nint firsts = *(nint*)Mem.at(CD_LIB + 0x2c);
+        if (firsts == 0 || map < 0) return false;
+        int loc = *(short*)(firsts + 0xc * 2) + map * 0x12;
+        if (loc < 0 || loc >= *(int*)names) return false;
+        uint start = *(uint*)(names + 4 + 4 * loc), end = *(uint*)(names + 8 + 4 * loc);
+        return (int)(end - start) > 0;
+    }
+
     /// <summary>Ids in the event list with no script in the game files (field.md 4.3): jumping there fails.</summary>
     public static readonly HashSet<int> NO_SCRIPT = [
         40, 101, 111, 186, 216, 228, 229, 231, 232, 233, 246, 251, 262, 300, 304, 342,
@@ -141,13 +163,16 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
                 sb.Append((char)b);
             }
             int id = *(int*)(e + 0xc);
-            list[i] = new MapEntry(id, sb.ToString(), !NO_SCRIPT.Contains(id));
+            list[i] = new MapEntry(id, sb.ToString(), !NO_SCRIPT.Contains(id) && script_name_present(id));
         }
         maps = [ .. list.OrderBy(m => m.Id) ];
     });
 
     public void jump(int map, int entrance) => GameThread.post("map jump", () => {
-        if (NO_SCRIPT.Contains(map)) { GameThread.last_status = $"map {map} has no script in the game files"; return; }
+        if (NO_SCRIPT.Contains(map) || !script_name_present(map)) {
+            GameThread.last_status = $"map {map} has no script in the PC version; jumping there would crash the game";
+            return;
+        }
         if (!jump_allowed()) { GameThread.last_status = "the current event does not allow leaving the map now (the debug flag lifts that)"; return; }
         Calls.AtelSetEventJump2.fnptr!(map, entrance, 0);
         GameThread.last_status = $"jumping to map {map}, entrance {entrance}";
