@@ -24,7 +24,19 @@ public static class D {
         nint va0, nint va1, nint va2,  nint va3,  nint va4,  nint va5,  nint va6,  nint va7,
         nint va8, nint va9, nint va10, nint va11, nint va12, nint va13, nint va14, nint va15);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void IntIntFn(int a, int b);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void IntPtrFn(int a, nint b);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void PtrFn(nint a);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  IntToIntFn(int a);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  IntPtrToIntFn(int a, nint b);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  PtrPtrToIntFn(nint a, nint b);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  WinProcFn(nint win, int msg, int id);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint WindowCreateFn(int x, int y, int w, int h, int flags, nint proc);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate ushort RetUShortFn();
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint UShortUIntToPtrFn(ushort a, uint b);
+
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisFn(nint self);
+    [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisUIntUIntFn(nint self, uint a, uint b);
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisIntFn(nint self, int a);
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisPtrFn(nint self, nint a);
 }
@@ -71,7 +83,36 @@ public static class Calls {
     /// <summary>cdecl (): draws the TODaps buffer through the PC font path (no caller in release).</summary>
     public static FhCallHandle<D.VoidFn> TODapsMakePkt => h<D.VoidFn>(0x0089dcb0);
 
+    // ---- the PS2 debug GUI (Gu toolkit); docs/research/gs.md ----
+    public static FhCallHandle<D.VoidFn>         Gu_Init             => h<D.VoidFn>(0x008497a0);
+    public static FhCallHandle<D.IntPtrFn>       Gu_Main             => h<D.IntPtrFn>(0x00849850);
+    public static FhCallHandle<D.IntFn>          Gu_DrawEnd          => h<D.IntFn>(0x008479d0);
+    public static FhCallHandle<D.VoidFn>         Gu_VSyncMain        => h<D.VoidFn>(0x0084a460);
+    public static FhCallHandle<D.WindowCreateFn> Gu_WindowCreate     => h<D.WindowCreateFn>(0x0084a920);
+    public static FhCallHandle<D.IntToIntFn>     Gu_Hide             => h<D.IntToIntFn>(0x00849780);
+    public static FhCallHandle<D.WinProcFn>      WMainProc           => h<D.WinProcFn>(0x0084f550);
+    public static FhCallHandle<D.IntIntFn>       Sg_SetResource      => h<D.IntIntFn>(0x0083fe10);
+    public static FhCallHandle<D.VoidFn>         SgGu_LightTableInit => h<D.VoidFn>(0x0084ea00);
+    public static FhCallHandle<D.IntFn>          Gui_MasakiInit      => h<D.IntFn>(0x007c86e0);
+    public static FhCallHandle<D.VoidFn>         Sg_MainDebug        => h<D.VoidFn>(0x008207f0);
+    public static FhCallHandle<D.IntPtrToIntFn>  FFXUsbMouseRead2    => h<D.IntPtrToIntFn>(0x00855bc0);
+    public static FhCallHandle<D.PtrPtrToIntFn>  SystemOnHost        => h<D.PtrPtrToIntFn>(0x0084ede0);
+    public static FhCallHandle<D.VoidFn>         Sg_CaptureEnable    => h<D.VoidFn>(0x0083a470);
+    public static FhCallHandle<D.PtrFn>          op_num              => h<D.PtrFn>(0x007e63a0);
+
+    // ---- the debug flag ----
+    public static FhCallHandle<D.VoidFn> Sg_DbInitAll  => h<D.VoidFn>(0x00841440);
+    public static FhCallHandle<D.VoidFn> initEventList => h<D.VoidFn>(0x00907f50);
+
+    // ---- panel text ----
+    /// <summary>thiscall (TextUtil*, w, h): rebuilds the panel text's matrix from its scale/position fields.</summary>
+    public static FhCallHandle<D.ThisUIntUIntFn> TextUtil_resize => h<D.ThisUIntUIntFn>(0x006f6670);
+
     // ---- field ----
+    /// <summary>cdecl () -> the current save-dictionary (place) id.</summary>
+    public static FhCallHandle<D.RetUShortFn> AtelGetSaveDic => h<D.RetUShortFn>(0x0086c410);
+    /// <summary>cdecl (id, english) -> the place name, game-encoded.</summary>
+    public static FhCallHandle<D.UShortUIntToPtrFn> AtelGetSaveDicName => h<D.UShortUIntToPtrFn>(0x0086c430);
     /// <summary>cdecl (map, entrance, fade): warps when the event allows leaving the map.</summary>
     public static FhCallHandle<D.Int3Fn> AtelSetEventJump2 => h<D.Int3Fn>(0x0086ff40);
     /// <summary>cdecl (event) -> name; reads the event index file, so call it sparingly.</summary>
@@ -115,4 +156,15 @@ public static class G {
     public const uint FreeCamera    = 0x00ccc830; // ptr to the 0x340-byte FreeCamera
     public const uint InputManager  = 0x00ccb170; // Virtuos input manager: +0x9c pair count, +0xa4 pairs
     public const uint ViewerSaveLast = 0x00c5a038; // the last viewer save loaded (TkDebugLoadViewerSave skips a repeat)
+
+    // debug flag
+    public const uint FFXIsDebug     = 0x0133c910; // u8 g_FFXIsDebug
+    public const uint L2ExecFlag     = 0x013007b1; // u8, the debug pad's "L2 held" (only rewritten under the flag)
+    public const uint EventTable     = 0x025d5888; // ptr to 16-byte entries {name[12], id} (initEventList)
+    public const uint EventCount     = 0x01934ec8; // int
+
+    // free camera gates
+    public const uint AsyncControllerOn = 0x0133c930; // u8
+    public const uint PauseRequest      = 0x01340850; // int
+    public const uint PauseEntered      = 0x0134084c; // int
 }
