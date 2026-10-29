@@ -45,7 +45,7 @@ public sealed class MainWindow(
                 ImGui.SetTooltip("The developers' debug mode (g_FFXIsDebug), switched on in the running game.\n"
                                + "While on: L1 walks through walls, L2 and L1+R1 change the game speed, events never refuse a map jump,\n"
                                + "a New Game starts at story flag 5, outside a battle L1+R1+L2+R2+X starts the picked battle,\n"
-                               + "and the four model-viewer panels work. Battle sound may not load right while it is on.");
+                               + "and the four model-viewer panels work.");
             }
             ImGui.SameLine();
             Txt.D(dbg ? "on: the game runs as the developers' build did (hover for what changes)" : "off");

@@ -39,6 +39,9 @@ public static class D {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint Rect7Fn(uint a1, uint a2, uint a3, uint a4, uint a5, uint a6, uint a7);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint RectBuildFn(nint render, uint a1, uint a2, uint a3, uint a4, uint a5, uint a6, uint a7, uint unlimited);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint UIntToPtrFn(uint a);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint Int4Fn(int a, int b, int c, int d);
+
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisFn(nint self);
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisUIntUIntFn(nint self, uint a, uint b);
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisIntFn(nint self, int a);
@@ -115,6 +118,11 @@ public static class Calls {
     public static FhCallHandle<D.Rect7Fn> yiRectToOMD_old => h<D.Rect7Fn>(0x00909dd0);
     public static FhCallHandle<D.RectBuildFn> yiRectToOMDBuild => h<D.RectBuildFn>(0x00912270);
     public const uint g_YiRender = 0x01876e00;
+
+    /// <summary>cdecl (key) -> block: a character's data block (loaded on first use).</summary>
+    public static FhCallHandle<D.UIntToPtrFn> Ch_BlkGetHandle => h<D.UIntToPtrFn>(0x00825a40);
+    /// <summary>cdecl (mode, field, group, formation): loads and starts a battle.</summary>
+    public static FhCallHandle<D.Int4Fn> MsBattleExe => h<D.Int4Fn>(0x00781020);
 
     // ---- panel text ----
     /// <summary>thiscall (TextUtil*, w, h): rebuilds the panel text's matrix from its scale/position fields.</summary>

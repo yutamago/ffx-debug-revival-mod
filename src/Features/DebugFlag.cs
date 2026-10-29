@@ -33,7 +33,44 @@ public sealed unsafe class DebugFlag {
     ///     the release behaviour: the same call with unlimited = 0.
     /// </summary>
     public bool init(FhModule owner) =>
-        Calls.yiRectToOMD.hook(owner, h_rect) && Calls.yiRectToOMD_old.hook(owner, h_rect_old);
+        Calls.yiRectToOMD.hook(owner, h_rect) && Calls.yiRectToOMD_old.hook(owner, h_rect_old)
+     && Calls.Ch_BlkGetHandle.hook(owner, h_blk_get_handle) && Calls.MsBattleExe.hook(owner, h_battle_exe);
+
+    private D.UIntToPtrFn? _next_blk;
+    private D.Int4Fn? _next_battle_exe;
+
+    /// <summary>
+    ///     With the flag, Ch_BlkGetHandle loads a character only if it is in the
+    ///     developers' debug lists (Ch_InitAll reads them at boot, only in a debug
+    ///     boot; on a normal start they are empty), so every character loaded
+    ///     after the flag went on was "not exist" and its callers went on with a
+    ///     bad block: the heap broke a few seconds later. The call runs with the
+    ///     flag lowered, i.e. as in release.
+    /// </summary>
+    [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
+    private nint h_blk_get_handle(uint key) {
+        _next_blk ??= Calls.Ch_BlkGetHandle.chain_from(h_blk_get_handle).fnptr!;
+        byte saved = Mem.u8(G.FFXIsDebug);
+        if (saved == 0) return _next_blk(key);
+        Mem.set_u8(G.FFXIsDebug, 0);
+        try { return _next_blk(key); }
+        finally { Mem.set_u8(G.FFXIsDebug, saved); }
+    }
+
+    /// <summary>
+    ///     With the flag, MsBattleExe points battle sound at the developers'
+    ///     /usr/local/ffx/.../ps2/sound (SsSetProjectBase), which the PC build
+    ///     does not have. The call runs with the flag lowered.
+    /// </summary>
+    [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
+    private uint h_battle_exe(int mode, int field, int group, int formation) {
+        _next_battle_exe ??= Calls.MsBattleExe.chain_from(h_battle_exe).fnptr!;
+        byte saved = Mem.u8(G.FFXIsDebug);
+        if (saved == 0) return _next_battle_exe(mode, field, group, formation);
+        Mem.set_u8(G.FFXIsDebug, 0);
+        try { return _next_battle_exe(mode, field, group, formation); }
+        finally { Mem.set_u8(G.FFXIsDebug, saved); }
+    }
 
     private D.RectBuildFn? _build;
 
