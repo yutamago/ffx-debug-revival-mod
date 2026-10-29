@@ -85,4 +85,4 @@ public sealed record CtrlSnap(
 public sealed record VarSnap(int Index, string Storage, string Type, ushort Length, uint Offset, string Value);
 
 /// <summary>The disassembly of one worker's code, with an offset-to-line map for the PC marker.</summary>
-public sealed record Listing(nint Block, nint Code, int LocalIndex, List<Line> Lines, Dictionary<uint, int> LineOf, string Error);
+public sealed record Listing(nint Block, nint Code, ulong Print, int LocalIndex, List<Line> Lines, Dictionary<uint, int> LineOf, string Error);

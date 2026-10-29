@@ -26,6 +26,20 @@ public sealed class Guards(FhLogger log) {
     public int blocked_steam_resets;
     public int blocked_viewer_saves;
 
+    /// <summary>
+    ///     Whether both guard hooks are really in place. <c>hook()</c> in init only
+    ///     queues a hook; Fahrenheit installs them after every init, so this checks
+    ///     the detour's jump at both functions. Game thread.
+    /// </summary>
+    public bool verified { get; private set; }
+
+    public bool verify() {
+        if (verified) return true;
+        verified = Mem.u8(0x006f1420) == 0xe9 && Mem.u8(0x008b55e0) == 0xe9;
+        if (!verified) log.Error("The safety hooks are not installed; the developer panels stay locked.");
+        return verified;
+    }
+
     public bool init(FhModule owner) {
         return Calls.StatsAndAchievements_ResetAll.hook(owner, h_reset_all)
             && Calls.TkDebugLoadViewerSave.hook(owner, h_viewer_save);

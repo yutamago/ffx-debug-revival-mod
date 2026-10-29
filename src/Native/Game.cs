@@ -93,6 +93,7 @@ public static class G {
     public const int  CtrlWorkSize    = 0x238;
     public const int  CtrlWorkCount   = 7;
     public const uint CurrentCtrlIdx  = 0x01326b30; // u32, the ctrl work Atel_ExecCtrlWorks is running
+    public const uint ScriptContext   = 0x01326b28; // AtelCtrlWork*, the current ctrl work (g_ScriptContext)
 
     // tweak panels
     public const uint DebugMenuManager = 0x00cccab0; // ptr; +4 current mode (10 = none)

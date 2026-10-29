@@ -40,10 +40,20 @@ public sealed unsafe class FieldTools(Guards guards) {
 
     public bool init(FhModule owner) => Calls.Sg_GetIgnoreID.hook(owner, h_ignore_id);
 
-    [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
-    private int h_ignore_id() => noclip ? 1 : Calls.Sg_GetIgnoreID.chain_from(h_ignore_id).fnptr!();
+    private D.RetIntFn? _next_ignore_id;
 
-    private static bool jump_allowed() => (Mem.u8(G.AtelCtrlWorks) & 0x80) != 0;
+    [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
+    private int h_ignore_id() {
+        if (noclip) return 1;
+        _next_ignore_id ??= Calls.Sg_GetIgnoreID.chain_from(h_ignore_id).fnptr!;
+        return _next_ignore_id();
+    }
+
+    /// <summary>What AtelSetEventJump(2) checks: bit 0x80 of the current ctrl work's first byte ("may leave the map").</summary>
+    internal static bool jump_allowed() {
+        nint ctx = *(nint*)Mem.at(G.ScriptContext);
+        return ctx != 0 && (*(byte*)ctx & 0x80) != 0;
+    }
 
     /// <summary>Game thread, after each update.</summary>
     public void update() {

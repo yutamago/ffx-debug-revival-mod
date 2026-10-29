@@ -33,12 +33,22 @@ public sealed unsafe class ScriptDebugger {
     // Commands from the UI, applied in the hook's pre-step.
     private readonly ConcurrentQueue<Action> _commands = new();
 
+    /// <summary>One of our breakpoints. <c>Print</c> fingerprints the script it was set in.</summary>
+    private sealed record Bp(int Ctrl, int Slot, nint Block, nint Ptr, byte Saved, ulong Print);
+
     // Game-thread state.
     private bool _in_pass;
+    private int  _run_depth;
     private (int ctrl, nint worker, bool stepped)? _step;
-    private readonly List<(int ctrl, int slot, nint block, nint ptr)> _our_bps = [];
+    private readonly List<Bp> _our_bps = [];
+    /// <summary>Breakpoints lifted by Continue, set again once no worker stands on them.</summary>
+    private readonly List<Bp> _rearm = [];
     private int _listing_bp_version = -1;
     private int _bp_version;
+
+    // The next functions in the hook chains, cached on first use (chains are fixed after init).
+    private D.ExecCtrlWorksFn? _next_exec;
+    private D.ScriptRunFn?     _next_run;
 
     // Published for the UI.
     private readonly CtrlSnap?[] _ctrls = new CtrlSnap?[G.CtrlWorkCount];
@@ -71,29 +81,32 @@ public sealed unsafe class ScriptDebugger {
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private uint h_exec_ctrl_works(int from, int to) {
         try {
-            while (_commands.TryDequeue(out Action? cmd)) cmd();
             validate_breakpoints();
+            rearm_breakpoints();
+            while (_commands.TryDequeue(out Action? cmd)) cmd();
             if (_step is { } s && s.ctrl >= from && s.ctrl < to) {
-                // Let the ctrl work's update run; the Script_Run hook lets only the stepped worker through.
-                set_state(s.ctrl, (byte)(s.ctrl == 0 ? 1 : 0));
+                // Let the event's update run in step mode; the Script_Run hook lets only the stepped worker through.
+                set_state(s.ctrl, 1);
             }
         }
         catch (Exception e) { _log.Error($"script debugger pre: {e}"); }
 
+        _next_exec ??= Calls.Atel_ExecCtrlWorks.chain_from(h_exec_ctrl_works).fnptr!;
         _in_pass = true;
-        uint r = Calls.Atel_ExecCtrlWorks.chain_from(h_exec_ctrl_works).fnptr!(from, to);
+        uint r = _next_exec(from, to);
         _in_pass = false;
 
         try {
             if (_step is { } s && s.ctrl >= from && s.ctrl < to) {
                 set_state(s.ctrl, 3);
-                status = s.stepped ? $"stepped worker in ctrl {s.ctrl}" : $"ctrl {s.ctrl}: the worker did not run (not runnable or waiting)";
+                status = s.stepped ? "stepped one instruction" : "the worker did not run (not runnable, or waiting)";
                 _step = null;
             }
             for (int c = Math.Max(0, from); c < Math.Min(to, G.CtrlWorkCount); c++) {
                 Volatile.Write(ref _ctrls[c], snapshot_ctrl(c));
             }
-            if (selected_ctrl >= from && selected_ctrl < to) snapshot_selected();
+            int sel = selected_ctrl;
+            if (sel >= from && sel < to) snapshot_selected(sel);
             Interlocked.Increment(ref frame);
         }
         catch (Exception e) { _log.Error($"script debugger post: {e}"); }
@@ -102,39 +115,75 @@ public sealed unsafe class ScriptDebugger {
 
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private uint h_script_run(nint worker, uint mode, uint callbacks) {
-        // Only interfere inside the frame pass: battle code also runs workers in its own
-        // loops (MsAtelParseSysTag), and skipping them there would hang the game.
-        if (_in_pass && _step is { } s && Mem.u32(G.CurrentCtrlIdx) == (uint)s.ctrl) {
-            if (worker != s.worker || s.stepped) return 0;
+        _next_run ??= Calls.Script_Run.chain_from(h_script_run).fnptr!;
+        // Stepping filters only the event update's own calls (depth 0, inside the frame pass,
+        // with the event as the current ctrl work). Nested runs from natives pass through.
+        if (_run_depth == 0 && _in_pass && _step is { } s
+         && Mem.u32(G.CurrentCtrlIdx) == (uint)s.ctrl
+         && *(nint*)Mem.at(G.ScriptContext) == ctrl_ptr(s.ctrl)) {
+            if (worker != s.worker || s.stepped) return 0; // the game's own "not runnable" result
             _step = s with { stepped = true };
-            return Calls.Script_Run.chain_from(h_script_run).fnptr!(worker, 1, callbacks);
+            mode = 1;
         }
-        return Calls.Script_Run.chain_from(h_script_run).fnptr!(worker, mode, callbacks);
+        _run_depth++;
+        try {
+            return _next_run(worker, mode, callbacks);
+        }
+        finally {
+            _run_depth--;
+        }
     }
 
     // ------------------------------------------------------------- commands
 
-    public void pause(int c)       => _commands.Enqueue(() => { set_state(c, 3); status = $"ctrl {c} paused"; });
-    public void resume(int c)      => _commands.Enqueue(() => { set_state(c, 0); status = $"ctrl {c} running"; });
-    public void frame_step(int c)  => _commands.Enqueue(() => { set_state(c, 2); status = $"ctrl {c}: one frame"; });
+    public void pause(int c)      => _commands.Enqueue(() => { set_state(c, 3); status = $"ctrl {c} paused"; });
+    public void frame_step(int c) => _commands.Enqueue(() => { set_state(c, 2); status = $"ctrl {c}: one frame"; });
 
-    /// <summary>Runs one instruction of one worker, then leaves its ctrl work stopped.</summary>
+    /// <summary>
+    ///     Continues. A breakpoint the ctrl work stopped on is lifted until no
+    ///     worker stands on it any more: an instruction that spans frames (a native
+    ///     being polled, a request wait) would otherwise stop again at once.
+    /// </summary>
+    public void resume(int c) => _commands.Enqueue(() => {
+        foreach (Bp b in _our_bps.ToArray()) {
+            nint e = ctrl_ptr(b.Ctrl) + 0x64 + b.Slot * 0x10;
+            if (b.Ctrl == c && *(byte*)(e + 0xf) != 0) {
+                clear_bp(b);
+                _our_bps.Remove(b);
+                _rearm.Add(b);
+                _bp_version++;
+            }
+        }
+        set_state(c, 0);
+        status = $"ctrl {c} running";
+    });
+
+    /// <summary>Runs one instruction of one event worker, then leaves the event stopped.</summary>
     public void step(int c, int worker_index) => _commands.Enqueue(() => {
+        if (c != 0) { status = "single steps are for event scripts (ctrl 0); use 'One frame' elsewhere"; return; }
         CtrlSnap? cs = ctrl(c);
         WorkerSnap? w = cs?.Workers.FirstOrDefault(x => x.Index == worker_index);
         if (w is null || !w.HasLevels) { status = "that worker has no code of its own to step"; return; }
         _step = (c, w.Ptr, false);
     });
 
-    /// <summary>Sets or clears a breakpoint at a code offset of a block (event scripts only).</summary>
-    public void toggle_breakpoint(int c, nint block, uint code_offset) => _commands.Enqueue(() => {
+    /// <summary>
+    ///     Sets or clears a breakpoint (event scripts only). <paramref name="print"/>
+    ///     is the fingerprint of the listing the click came from; a click from a
+    ///     listing of an older script is refused.
+    /// </summary>
+    public void toggle_breakpoint(int c, nint block, ulong print, uint code_offset) => _commands.Enqueue(() => {
         if (c != 0) { status = "breakpoints are for event scripts (ctrl 0) only"; return; }
         nint ctrl = ctrl_ptr(c);
-        if ((Mem.u8(G.AtelCtrlWorks) & 1) == 0) { status = "no event loaded"; return; }
-        nint code = block + (nint)(*(uint*)(block + 0x30));
-        nint ptr  = code + (nint)code_offset;
+        if ((*(byte*)ctrl & 1) == 0 || *(nint*)(ctrl + 0x48) != block || fingerprint(block) != print) {
+            status = "the script changed; click again in the new listing";
+            return;
+        }
+        uint code_len = *(uint*)block;
+        if (code_offset >= code_len) { status = "outside the event's code"; return; }
+        nint ptr = block + (nint)(*(uint*)(block + 0x30)) + (nint)code_offset;
 
-        int existing = _our_bps.FindIndex(b => b.ctrl == c && b.ptr == ptr);
+        int existing = _our_bps.FindIndex(b => b.Ctrl == c && b.Ptr == ptr);
         if (existing >= 0) {
             clear_bp(_our_bps[existing]);
             _our_bps.RemoveAt(existing);
@@ -142,26 +191,23 @@ public sealed unsafe class ScriptDebugger {
             status = $"breakpoint at {code_offset:x5} cleared";
             return;
         }
-        for (int slot = 0; slot < 4; slot++) {
-            nint e = ctrl + 0x64 + slot * 0x10;
-            if (*(int*)e >= 0) continue;
-            *(uint*)(e + 4)  = BP_TAG;
-            *(nint*)(e + 8)  = ptr;
-            *(byte*)(e + 0xe) = *(byte*)ptr;
-            *(byte*)(e + 0xf) = 0;
-            *(int*)e = slot;
-            *(byte*)ptr = 0x40;
-            _our_bps.Add((c, slot, block, ptr));
+        int rearming = _rearm.FindIndex(b => b.Ctrl == c && b.Ptr == ptr);
+        if (rearming >= 0) {
+            _rearm.RemoveAt(rearming);
             _bp_version++;
-            status = $"breakpoint {slot + 1} at {code_offset:x5}";
+            status = $"breakpoint at {code_offset:x5} cleared";
             return;
         }
-        status = "all 4 breakpoint slots of this ctrl work are in use";
+        if (*(byte*)ptr == 0x40) { status = "there is a breakpoint byte there already"; return; }
+        status = arm(new Bp(c, -1, block, ptr, *(byte*)ptr, print)) is int slot
+            ? $"breakpoint {slot + 1} at {code_offset:x5}"
+            : "all 4 breakpoint slots of this ctrl work are in use";
     });
 
     public void clear_all_breakpoints() => _commands.Enqueue(() => {
-        foreach (var b in _our_bps) clear_bp(b);
+        foreach (Bp b in _our_bps) clear_bp(b);
         _our_bps.Clear();
+        _rearm.Clear();
         _bp_version++;
         status = "breakpoints cleared";
     });
@@ -175,39 +221,81 @@ public sealed unsafe class ScriptDebugger {
         *(byte*)(ctrl_ptr(c) + 8) = v;
     }
 
-    /// <summary>Restores the byte and frees the entry, if the entry is still ours and the code still there.</summary>
-    private static void clear_bp((int ctrl, int slot, nint block, nint ptr) b) {
-        nint e = ctrl_ptr(b.ctrl) + 0x64 + b.slot * 0x10;
-        bool ours = *(uint*)(e + 4) == BP_TAG && *(nint*)(e + 8) == b.ptr;
-        if (ours && *(int*)e >= 0) {
-            if (*(byte*)b.ptr == 0x40) *(byte*)b.ptr = *(byte*)(e + 0xe);
-            *(int*)e = -1;
-            *(uint*)(e + 4) = 0;
+    /// <summary>Identifies a loaded script: the event id and the block's header (code length, offsets, worker table).</summary>
+    private static ulong fingerprint(nint block) {
+        ulong h = 0xcbf29ce484222325UL;
+        void mix(uint v) { h = (h ^ v) * 0x100000001b3UL; }
+        mix((uint)*Fahrenheit.FFX.Globals.event_id);
+        for (int k = 0; k < 0x40; k += 4) mix(*(uint*)(block + k));
+        return h;
+    }
+
+    /// <summary>Takes a free slot of the ctrl work's table and patches 0x40 in; returns the slot.</summary>
+    private int? arm(Bp b) {
+        nint ctrl = ctrl_ptr(b.Ctrl);
+        for (int slot = 0; slot < 4; slot++) {
+            nint e = ctrl + 0x64 + slot * 0x10;
+            if (*(int*)e >= 0) continue;
+            *(uint*)(e + 4)   = BP_TAG;
+            *(nint*)(e + 8)   = b.Ptr;
+            *(byte*)(e + 0xe) = b.Saved;
             *(byte*)(e + 0xf) = 0;
+            *(int*)e = slot;
+            *(byte*)b.Ptr = 0x40;
+            _our_bps.Add(b with { Slot = slot });
+            _bp_version++;
+            return slot;
         }
+        return null;
+    }
+
+    /// <summary>Restores the byte and frees the entry, if the entry is still ours.</summary>
+    private static void clear_bp(Bp b) {
+        nint e = ctrl_ptr(b.Ctrl) + 0x64 + b.Slot * 0x10;
+        bool ours = *(int*)e >= 0 && *(uint*)(e + 4) == BP_TAG && *(nint*)(e + 8) == b.Ptr;
+        if (!ours) return;
+        if (*(byte*)b.Ptr == 0x40) *(byte*)b.Ptr = b.Saved;
+        *(int*)e = -1;
+        *(uint*)(e + 4) = 0;
+        *(byte*)(e + 0xf) = 0;
+    }
+
+    /// <summary>Whether the event still runs the script a breakpoint was set in.</summary>
+    private static bool same_script(Bp b) {
+        nint ctrl = ctrl_ptr(b.Ctrl);
+        return (*(byte*)ctrl & 1) != 0 && *(nint*)(ctrl + 0x48) == b.Block && fingerprint(b.Block) == b.Print;
     }
 
     /// <summary>
     ///     Drops breakpoints whose script went away. A new event resets the table
-    ///     (AtelRequireCtrlWork) without restoring bytes; if the block is still the
-    ///     same, the 0x40 left behind would hang the VM, so it is restored here.
+    ///     (AtelRequireCtrlWork) without restoring bytes; only when the very same
+    ///     script is still loaded is the 0x40 left behind put back, since a new
+    ///     script at the same address may hold 0x40 as an operand byte.
     /// </summary>
     private void validate_breakpoints() {
         for (int i = _our_bps.Count - 1; i >= 0; i--) {
-            var b = _our_bps[i];
-            nint ctrl = ctrl_ptr(b.ctrl);
-            nint e = ctrl + 0x64 + b.slot * 0x10;
-            bool in_use     = (*(byte*)ctrl & 1) != 0;
-            bool same_block = in_use && *(nint*)(ctrl + 0x48) == b.block;
-            bool entry_ours = *(int*)e >= 0 && *(uint*)(e + 4) == BP_TAG && *(nint*)(e + 8) == b.ptr;
-            if (same_block && entry_ours) continue;
-            if (same_block && *(byte*)b.ptr == 0x40) {
-                byte saved = *(byte*)(e + 0xe);
-                *(byte*)b.ptr = saved;
-            }
+            Bp b = _our_bps[i];
+            nint e = ctrl_ptr(b.Ctrl) + 0x64 + b.Slot * 0x10;
+            bool same = same_script(b);
+            bool entry_ours = *(int*)e >= 0 && *(uint*)(e + 4) == BP_TAG && *(nint*)(e + 8) == b.Ptr;
+            if (same && entry_ours) continue;
+            if (same && *(byte*)b.Ptr == 0x40) *(byte*)b.Ptr = b.Saved;
             _our_bps.RemoveAt(i);
             _bp_version++;
             status = "a breakpoint was dropped: its script was unloaded";
+        }
+        _rearm.RemoveAll(b => !same_script(b));
+    }
+
+    /// <summary>Sets lifted breakpoints again once no worker of their ctrl work stands on them.</summary>
+    private void rearm_breakpoints() {
+        for (int i = _rearm.Count - 1; i >= 0; i--) {
+            Bp b = _rearm[i];
+            CtrlSnap? cs = ctrl(b.Ctrl);
+            nint code = b.Block + (nint)(*(uint*)(b.Block + 0x30));
+            if (cs is null || cs.Workers.Any(w => w.PcValid && w.Block == b.Block && code + (nint)w.Pc == b.Ptr)) continue;
+            _rearm.RemoveAt(i);
+            if (*(byte*)b.Ptr == b.Saved) arm(b);
         }
     }
 
@@ -310,8 +398,8 @@ public sealed unsafe class ScriptDebugger {
     }
 
     /// <summary>Listing and variables for the UI's selection; rebuilt only when the selection or breakpoints change.</summary>
-    private void snapshot_selected() {
-        CtrlSnap? cs = ctrl(selected_ctrl);
+    private void snapshot_selected(int sel) {
+        CtrlSnap? cs = ctrl(sel);
         WorkerSnap? w = cs?.Workers.FirstOrDefault(x => x.Index == selected_worker);
         if (cs is null || w is null || w.Block == 0) { listing = null; variables = null; return; }
 
@@ -327,6 +415,7 @@ public sealed unsafe class ScriptDebugger {
             if (b.Id >= 0 && b.Ptr >= w.Block && b.Ptr < w.Block + (nint)size) overlay[b.Ptr - w.Block] = b.Saved;
         }
         ScriptBlock? block = ScriptBlock.parse(new MemBlockReader(w.Block, size, overlay), size, out string error);
+        ulong print = fingerprint(w.Block);
 
         if (block is not null && listing_override < 0 && w.PcValid) {
             WorkerInfo? owner = block.Workers.FirstOrDefault(x => w.Pc >= x.Start && w.Pc < x.End);
@@ -334,15 +423,15 @@ public sealed unsafe class ScriptDebugger {
         }
 
         if (block is null || local < 0 || local >= block.Workers.Count) {
-            listing = new Listing(w.Block, 0, local, [], [], block is null ? error : "this worker has no code in its block");
+            listing = new Listing(w.Block, 0, 0, local, [], [], block is null ? error : "this worker has no code in its block");
         }
-        else if (listing is not { } old || old.Block != w.Block || old.LocalIndex != local || _listing_bp_version != _bp_version) {
+        else if (listing is not { } old || old.Block != w.Block || old.Print != print || old.LocalIndex != local || _listing_bp_version != _bp_version) {
             List<Line> lines = block.disassemble(local, _names.annotate);
             Dictionary<uint, int> line_of = [];
             for (int k = 0; k < lines.Count; k++) {
                 if (!lines[k].IsLabel) line_of.TryAdd(lines[k].Offset, k);
             }
-            listing = new Listing(w.Block, w.Block + (nint)block.CodeStart, local, lines, line_of, "");
+            listing = new Listing(w.Block, w.Block + (nint)block.CodeStart, print, local, lines, line_of, "");
             _listing_bp_version = _bp_version;
         }
 
@@ -365,7 +454,7 @@ public sealed unsafe class ScriptDebugger {
                 continue;
             }
             (uint word, ushort length) = desc;
-            int type    = (int)(word >> 28);
+            int type    = Math.Min((int)(word >> 28), 7);
             int storage = (int)((word >> 25) & 7);
             uint offset = word & 0xffffff;
             nint base_ = storage switch {

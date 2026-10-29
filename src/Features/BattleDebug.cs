@@ -183,10 +183,13 @@ public sealed unsafe class BattleDebug {
     public void start_picked() => GameThread.post("start battle", () => {
         if (_picker_label == 0) { GameThread.last_status = "look a battle up first"; return; }
         if (Mem.i8(G.BtlStatus) != 0) { GameThread.last_status = "already in a battle"; return; }
+        if (!FieldTools.jump_allowed()) { GameThread.last_status = "only while you control the player in the field"; return; }
         Calls.void_fn(TO_ALL_CLEAR_MESSAGE_WINDOW).fnptr!();
         Calls.MsBattleLabelExe.fnptr!(_picker_label, 0, 0);
         GameThread.last_status = Mem.u8(G.BtlExe) == 2 ? "battle requested" : "the game refused the battle (locked by the event?)";
     });
+
+    private D.VoidFn? _next_todaps_draw;
 
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private void h_todaps_draw() {
@@ -198,6 +201,7 @@ public sealed unsafe class BattleDebug {
             Calls.MsBattleProcess_DebugStatus.fnptr!();
             Calls.TODapsMakePkt.fnptr!();
         }
-        Calls.TODapsDraw.chain_from(h_todaps_draw).fnptr!();
+        _next_todaps_draw ??= Calls.TODapsDraw.chain_from(h_todaps_draw).fnptr!;
+        _next_todaps_draw();
     }
 }

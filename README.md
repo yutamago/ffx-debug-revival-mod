@@ -33,13 +33,20 @@ compiled out; the Scripts and Battle tabs rebuild what they showed.
 - The cheats, the Game params panel and the Battle character params panel
   change the game state your next save writes. The mod asks before running a
   cheat that does.
-- Breakpoints are limited to event scripts (ctrl work 0); battle code runs
-  scripts outside the frame loop, where a stopped worker could hang the game.
+- Breakpoints and single steps are limited to event scripts (ctrl work 0);
+  battle code runs scripts in loops of its own, where a stopped or skipped
+  worker could hang the game. Other ctrl works can be paused and advanced a
+  frame at a time.
+- The developer panels stay locked unless both safety hooks are confirmed in
+  place at the first frame.
+- The debug log formats the game's arguments itself and reads strings only
+  from readable memory, since these prints never ran in the PC build.
 
 ## Status
 
 The mod builds, and the disassembler matches ffx-decomp's on all 758 shipped
-scripts (`tools/disasm-check.sh`). It has **not been run in the game yet**.
+scripts (`tools/disasm-check.sh`). Its native code was reviewed against
+`docs/research/`. It has **not been run in the game yet**.
 
 ## Build
 

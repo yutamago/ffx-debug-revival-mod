@@ -13,7 +13,7 @@ namespace Yuta.DebugRevival.Features;
 ///     handler runs once per frame on the game thread. Its keys (I/K/J/L, Enter,
 ///     d-pad, Circle) also reach the game, as they did for the developers.
 /// </summary>
-public sealed unsafe class TweakPanels {
+public sealed unsafe class TweakPanels(Guards guards) {
     public sealed record Panel(int Mode, string Name, uint Instance, uint HandleInput, uint ShownOffset, uint CursorOffset, bool ViewerOnly, string Note);
 
     /// <summary>Mode -> panel (setMode's switch; VERIFIED in FFX.exe).</summary>
@@ -42,6 +42,7 @@ public sealed unsafe class TweakPanels {
     public volatile bool input_enabled;
 
     public void show(int mode) => GameThread.post($"show panel {mode}", () => {
+        if (mode != 10 && !guards.verified) { GameThread.last_status = "locked: the safety hooks are not installed (see the log)"; return; }
         nint dmm = *(nint*)Mem.at(G.DebugMenuManager);
         if (dmm == 0) { GameThread.last_status = "the debug menu manager does not exist yet"; return; }
         Calls.DebugMenuManager_setMode.fnptr!(dmm, mode);
@@ -50,7 +51,7 @@ public sealed unsafe class TweakPanels {
 
     /// <summary>Game thread, every frame: drives the shown panel's input handler.</summary>
     public void update() {
-        if (!input_enabled) return;
+        if (!input_enabled || !guards.verified) return;
         int mode = current_mode;
         if (mode < 0 || mode >= PANELS.Length) return;
         Panel p = PANELS[mode];

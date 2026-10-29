@@ -32,7 +32,7 @@ public sealed class DebugRevivalModule : FhModule {
 
         _guards  = new Guards(_logger);
         _scripts = new ScriptDebugger(_logger, names);
-        _panels  = new TweakPanels();
+        _panels  = new TweakPanels(_guards);
         _battle  = new BattleDebug();
         _field   = new FieldTools(_guards);
         _log     = new DebugLog();
@@ -59,7 +59,10 @@ public sealed class DebugRevivalModule : FhModule {
         return true; // the rest still works
     }
 
+    private bool _guards_checked;
+
     private void pre_update(UpdateLoopEventArgs args) {
+        if (!_guards_checked) { _guards!.verify(); _guards_checked = true; }
         GameThread.drain(_logger);
         try { _panels!.update(); }
         catch (Exception e) { _logger.Error($"panel input: {e}"); _panels!.input_enabled = false; }
@@ -73,7 +76,17 @@ public sealed class DebugRevivalModule : FhModule {
         catch (Exception e) { _logger.Error($"snapshot: {e}"); }
     }
 
+    private bool _ui_failed;
+
     public override void render_imgui() {
-        _window?.draw();
+        // Fahrenheit calls this without a try/catch; an exception here would end the game.
+        if (_ui_failed) return;
+        try {
+            _window?.draw();
+        }
+        catch (Exception e) {
+            _ui_failed = true;
+            _logger.Error($"The window failed and is now off: {e}");
+        }
     }
 }
