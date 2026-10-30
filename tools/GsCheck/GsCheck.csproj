@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- Parses a dumped PS2 debug-GUI packet with the mod's parser and prints the
+         primitives, so the parser can be checked against reference dumps. -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>Yuta.DebugRevival.Tools</RootNamespace>
+    </PropertyGroup>
+    <ItemGroup>
+        <Compile Include="../../src/Gs/GifParser.cs" />
+    </ItemGroup>
+</Project>

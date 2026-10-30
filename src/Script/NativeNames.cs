@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+namespace Yuta.DebugRevival.Script;
+
+/// <summary>
+///     Native function names for <c>func</c> annotations, from
+///     <c>natives.tsv</c> (<c>tools/gen-natives.py</c>): id, handler address
+///     in FFX.exe, name from ffx-decomp's symbols/ffx.sym.
+/// </summary>
+public sealed class NativeNames {
+    private readonly Dictionary<ushort, (uint handler, string name)> _by_id = [];
+
+    public static NativeNames parse(string tsv) {
+        NativeNames n = new();
+        foreach (string line in tsv.Split('\n')) {
+            if (line.Length == 0 || line[0] == '#') continue;
+            string[] f = line.TrimEnd('\r').Split('\t');
+            if (f.Length < 3) continue;
+            n._by_id[ushort.Parse(f[0], System.Globalization.NumberStyles.HexNumber)]
+                = (uint.Parse(f[1], System.Globalization.NumberStyles.HexNumber), f[2]);
+        }
+        return n;
+    }
+
+    /// <summary>"Name 0xhandler", or "0xhandler" when unnamed, or null for an unknown id.</summary>
+    public string? annotate(ushort id) {
+        if (!_by_id.TryGetValue(id, out var e)) return null;
+        return e.name.Length > 0 ? $"{e.name} 0x{e.handler:x8}" : $"0x{e.handler:x8}";
+    }
+
+    /// <summary>Just the name, for compact views.</summary>
+    public string? name(ushort id) => _by_id.TryGetValue(id, out var e) && e.name.Length > 0 ? e.name : null;
+}
