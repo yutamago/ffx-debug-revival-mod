@@ -45,9 +45,12 @@ the sound. With the F10/F11 box ticked, those keys toggle the two.
 
 ### Map jump
 
-The list holds the developers' internal map names. Greyed-out maps have no
-script in the PC version, and jumping there would crash the game. Jumping out
-of story order can break progression. **Model viewer** turns the debug flag on
+The list holds the developers' internal map names. Maps in red would crash or
+freeze the game, because the PC version lacks their script, so the mod refuses
+them. Map 399 sends the game back to the title screen; the mod asks first. The
+entrance slider shows how many entrances the map has. Jumping out of story
+order can break progression, and some maps may still get stuck if the story
+isn't where their script expects. **Model viewer** turns the debug flag on
 and goes to grid00, the developers' model viewer map.
 
 ### Developer saves

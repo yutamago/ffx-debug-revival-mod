@@ -12,5 +12,6 @@
     </PropertyGroup>
     <ItemGroup>
         <EmbeddedResource Include="Script/natives.tsv" LogicalName="natives.tsv" />
+        <EmbeddedResource Include="Features/maps.tsv" LogicalName="maps.tsv" />
     </ItemGroup>
 </Project>

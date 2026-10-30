@@ -735,6 +735,8 @@ Recipe:
 
 ### 4.3 Do not jump to these ids: no .ebp script in the VBF
 
+Superseded by maps.md, which has every cause (crash, freeze, reset) and the runtime checks the mod uses now.
+
 Comparison of eventid.bin names with `event/obj/*/<name>/<name>.ebp` under
 master/jppc (VERIFIED file list); the failure mode is INFERRED (load
 failure, hang or crash):

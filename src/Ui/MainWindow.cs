@@ -29,6 +29,8 @@ public sealed class MainWindow(
     private string _map_filter = "";
     private bool _show_test_maps = true;
     private bool _maps_requested;
+    private readonly List<int> _recent_maps = [];
+    private const int RECENT_MAX = 8;
 
     // Log tab
     private string _log_filter = "";
@@ -295,31 +297,58 @@ public sealed class MainWindow(
         ImGui.SeparatorText("Map jump");
         Txt.C(RED, "Jumping out of story order can break your progress.");
         FieldTools.MapEntry[]? maps = field.maps;
+        FieldTools.MapEntry? chosen = map_entry(_map);
         if (maps is not null) {
             ImGui.SetNextItemWidth(160);
             ImGui.InputTextWithHint("##mapfilter", "name or number", ref _map_filter, 32);
             ImGui.SameLine();
             ImGui.Checkbox("Test maps", ref _show_test_maps);
             ImGui.SetNextItemWidth(320);
-            if (ImGui.BeginCombo("Map", $"{_map}: {map_name(_map)}")) {
+            if (ImGui.BeginCombo("Map", $"{_map}: {chosen?.Name}")) {
                 foreach (FieldTools.MapEntry m in maps) {
                     if (!_show_test_maps && is_test(m.Name)) continue;
                     if (_map_filter.Length > 0 && !m.Name.Contains(_map_filter, StringComparison.OrdinalIgnoreCase)
                      && !m.Id.ToString(CultureInfo.InvariantCulture).StartsWith(_map_filter, StringComparison.Ordinal)) continue;
-                    ImGui.BeginDisabled(!m.HasScript);
-                    if (ImGui.Selectable($"{m.Id,3}: {m.Name}##m{m.Id}", m.Id == _map)) _map = m.Id;
-                    ImGui.EndDisabled();
+                    string label = risk_text(m.Risk) is string r ? $"{m.Id,3}: {m.Name}  ({r})" : $"{m.Id,3}: {m.Name}";
+                    if (m.Risk != FieldTools.JumpRisk.None) ImGui.PushStyleColor(ImGuiCol.Text, RED);
+                    if (ImGui.Selectable($"{label}##m{m.Id}", m.Id == _map)) { _map = m.Id; _entrance = 0; }
+                    if (m.Risk != FieldTools.JumpRisk.None) ImGui.PopStyleColor();
                 }
                 ImGui.EndCombo();
             }
+            if (chosen is not null && risk_text(chosen.Risk) is string warning) { ImGui.SameLine(); Txt.C(RED, warning); }
         }
+        int entrances = chosen?.Entrances ?? 0;
         ImGui.SetNextItemWidth(120);
-        ImGui.InputInt("Entrance", ref _entrance);
+        if (entrances > 1) ImGui.SliderInt("Entrance", ref _entrance, 0, entrances - 1);
+        else ImGui.InputInt("Entrance", ref _entrance);
+        _entrance = Math.Clamp(_entrance, 0, entrances > 0 ? entrances - 1 : 0xff); // the game stores it in a byte
+        if (entrances > 0) { ImGui.SameLine(); Txt.D($"of {entrances}"); }
         ImGui.SameLine();
-        if (ImGui.Button("Jump")) field.jump(_map, _entrance);
+        if (ImGui.Button("Jump")) {
+            if (chosen?.Risk == FieldTools.JumpRisk.Reset) ImGui.OpenPopup("Confirm reset");
+            else jump();
+        }
+        bool reset_open = true;
+        if (ImGui.BeginPopupModal("Confirm reset", ref reset_open, ImGuiWindowFlags.AlwaysAutoResize)) {
+            Txt.T($"Map {_map} sends the game back to the title screen.");
+            Txt.C(RED, "Anything you haven't saved is lost.");
+            if (ImGui.Button("Reset")) { jump(allow_reset: true); ImGui.CloseCurrentPopup(); }
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel")) ImGui.CloseCurrentPopup();
+            ImGui.EndPopup();
+        }
         ImGui.SameLine();
         if (ImGui.Button("Model viewer")) field.go_to_model_viewer(panels);
         Txt.Help("Goes to the developers' model viewer map and turns the debug flag on, so its panels work and you can leave again.");
+
+        if (_recent_maps.Count > 0) {
+            Txt.D("Recent:");
+            foreach (int id in _recent_maps) {
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"{id} {map_name(id)}##recent{id}")) { _map = id; _entrance = 0; }
+            }
+        }
 
         ImGui.SeparatorText("Developer saves");
         Txt.W("Saves the developers used to start each part of the story. Loading one replaces the running game and "
@@ -334,7 +363,24 @@ public sealed class MainWindow(
         if (ImGui.Checkbox("Basic debug panel may load them", ref allow)) guards.allow_viewer_saves = allow;
     }
 
-    private string map_name(int id) => field.maps?.FirstOrDefault(m => m.Id == id)?.Name ?? "";
+    private FieldTools.MapEntry? map_entry(int id) => field.maps?.FirstOrDefault(m => m.Id == id);
+
+    private string map_name(int id) => map_entry(id)?.Name ?? "";
+
+    private static string? risk_text(FieldTools.JumpRisk r) => r switch {
+        FieldTools.JumpRisk.Crash  => "crashes the game",
+        FieldTools.JumpRisk.Freeze => "freezes the game",
+        FieldTools.JumpRisk.Reset  => "returns to the title screen",
+        _ => null,
+    };
+
+    private void jump(bool allow_reset = false) {
+        field.jump(_map, _entrance, allow_reset);
+        if (map_entry(_map)?.Risk is FieldTools.JumpRisk.Crash or FieldTools.JumpRisk.Freeze) return;
+        _recent_maps.Remove(_map);
+        _recent_maps.Insert(0, _map);
+        if (_recent_maps.Count > RECENT_MAX) _recent_maps.RemoveAt(RECENT_MAX);
+    }
 
     private static bool is_test(string name) =>
         name.StartsWith("test", StringComparison.Ordinal) || name.StartsWith("scene", StringComparison.Ordinal)

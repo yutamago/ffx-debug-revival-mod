@@ -25,6 +25,7 @@ public static class D {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  IntToIntFn(int a);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  IntPtrToIntFn(int a, nint b);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  PtrPtrToIntFn(nint a, nint b);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  PtrIntToIntFn(nint a, int b);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  WinProcFn(nint win, int msg, int id);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint WindowCreateFn(int x, int y, int w, int h, int flags, nint proc);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate ushort RetUShortFn();
@@ -132,6 +133,9 @@ public static class Calls {
     public static FhCallHandle<D.UShortUIntToPtrFn> AtelGetSaveDicName => h<D.UShortUIntToPtrFn>(0x0086c430);
     /// <summary>cdecl (map, entrance, fade): warps when the event allows leaving the map.</summary>
     public static FhCallHandle<D.Int3Fn> AtelSetEventJump2 => h<D.Int3Fn>(0x0086ff40);
+    /// <summary>cdecl (name, mode) -> fd, 0 when the file doesn't exist; maps host0: names to the PC files.</summary>
+    public static FhCallHandle<D.PtrIntToIntFn> sceOpen => h<D.PtrIntToIntFn>(0x0062fa30);
+    public static FhCallHandle<D.IntToIntFn> sceClose => h<D.IntToIntFn>(0x0062f610);
     /// <summary>cdecl (on): random encounters on/off (g_BattleEnable).</summary>
     public static FhCallHandle<D.IntFn> setBattleEnable => h<D.IntFn>(0x00782f70);
     /// <summary>cdecl () -> the field's "ignore collision" flag; hooked for noclip.</summary>

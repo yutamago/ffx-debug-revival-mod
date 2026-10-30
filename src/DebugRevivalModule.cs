@@ -22,11 +22,8 @@ public sealed class DebugRevivalModule : FhModule {
     private MainWindow?     _window;
 
     public override bool init(FhModContext mod_context, FileStream global_state_file) {
-        NativeNames names;
-        using (Stream? s = typeof(DebugRevivalModule).Assembly.GetManifestResourceStream("natives.tsv")) {
-            using StreamReader r = new(s ?? throw new InvalidOperationException("natives.tsv is missing from the assembly"));
-            names = NativeNames.parse(r.ReadToEnd());
-        }
+        NativeNames names = NativeNames.parse(resource("natives.tsv"));
+        Dictionary<int, int> entrances = FieldTools.parse_entrances(resource("maps.tsv"));
 
         DirectoryInfo resources = mod_context.Paths.ResourcesDir;
         if (!resources.Exists) resources.Create();
@@ -37,7 +34,7 @@ public sealed class DebugRevivalModule : FhModule {
         _scripts = new ScriptDebugger(_logger, names);
         _panels  = new TweakPanels(_guards, _flag);
         _battle  = new BattleDebug();
-        _field   = new FieldTools(_guards, _flag);
+        _field   = new FieldTools(_guards, _flag, entrances);
         _log     = new DebugLog();
         _gu      = new GuToolkit(_flag);
         _gu_renderer = new GuRenderer(_gu, font_path);
@@ -59,6 +56,13 @@ public sealed class DebugRevivalModule : FhModule {
         FhApi.Events.Common.GameLoop.PreUpdate.subscribe(pre_update);
         FhApi.Events.Common.GameLoop.PostUpdate.subscribe(post_update);
         return true;
+    }
+
+    private static string resource(string name) {
+        using Stream s = typeof(DebugRevivalModule).Assembly.GetManifestResourceStream(name)
+                      ?? throw new InvalidOperationException($"{name} is missing from the assembly");
+        using StreamReader r = new(s);
+        return r.ReadToEnd();
     }
 
     private void warn_unless(bool ok, string what) {
