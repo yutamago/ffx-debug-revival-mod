@@ -45,6 +45,12 @@ public sealed class MainWindow(
         if (ImGui.Begin("Debug Revival", ref open)) {
             bool dbg = flag.on;
             if (ImGui.Checkbox("Debug flag", ref dbg)) flag.set(dbg, panels);
+            Txt.Help("The developers' debug mode. While it's on:\n"
+                   + "- L1 walks through walls, L2 and L1+R1 change the game speed\n"
+                   + "- you can always leave a map with a map jump\n"
+                   + "- a New Game starts at story step 5 instead of 0\n"
+                   + "- outside a battle, L1+R1+L2+R2+X starts the battle picked in the Battle tab\n"
+                   + "- the four model-viewer panels work");
             string status = GameThread.last_status;
             if (status.Length > 0) {
                 ImGui.SameLine();
@@ -69,6 +75,9 @@ public sealed class MainWindow(
         TweakPanels.Snapshot snap = panels.snap;
         bool input = panels.input_enabled;
         if (ImGui.Checkbox("Panel keys", ref input)) panels.input_enabled = input;
+        Txt.Help("The game draws the shown panel in small text at the top left. With Panel keys on, "
+               + "I/K or d-pad up/down pick a line, J/L or left/right change it, Enter or Circle activates it. "
+               + "The game sees those keys too.");
         ImGui.SameLine();
         if (ImGui.Button("Hide panels")) panels.show(TweakPanels.NONE);
         ImGui.Separator();
@@ -77,7 +86,8 @@ public sealed class MainWindow(
             ImGui.BeginDisabled(!usable);
             if (ImGui.RadioButton($"{p.Name}##p{p.Mode}", snap.Mode == p.Mode)) panels.show(p.Mode);
             ImGui.EndDisabled();
-            if (!usable) { ImGui.SameLine(); Txt.D("(needs the debug flag)"); }
+            ImGui.SameLine();
+            Txt.D(usable ? p.Note : $"needs the debug flag: {p.Note}");
             if (p.Warning is string warning) { ImGui.SameLine(); Txt.C(RED, warning); }
             if (snap.Mode == p.Mode && snap.Cursor >= 0) { ImGui.SameLine(); Txt.T($"[line {snap.Cursor}]"); }
         }
@@ -91,7 +101,7 @@ public sealed class MainWindow(
         ImGui.SetNextItemWidth(220);
         changed |= ImGui.SliderFloat("Left / right", ref _panel_x, -2f, 6f, "%.1f");
         ImGui.SameLine();
-        if (ImGui.Button("Original")) {
+        if (ImGui.Button("Original size")) {
             (_panel_scale, _panel_x, _panel_y) = (PANEL_SCALE, PANEL_X, PANEL_Y);
             changed = true;
         }
@@ -110,8 +120,13 @@ public sealed class MainWindow(
         ImGui.SameLine();
         bool cap = gu.capture_mouse;
         if (ImGui.Checkbox("Mouse controls the menu", ref cap)) gu.capture_mouse = cap;
+        Txt.Help("The developers' own debug menu from the PS2 version: a column of buttons at the right edge of the "
+               + "screen. Click the top buttons or turn the mouse wheel to switch pages. With 'Mouse controls the menu' "
+               + "on, the mouse works the menu wherever this window isn't. Items that would hang the game or clear "
+               + "your story progress are blocked.");
 
         ImGui.SeparatorText("Battle windows");
+        Txt.D("The developers' battle windows. A few more only work inside a battle and are left out.");
         foreach (var (n, name) in GuToolkit.BATTLE_WINDOWS) {
             if (ImGui.Button($"{name}##bw{n}")) gu.open_battle_window(n);
             ImGui.SameLine();
@@ -137,6 +152,8 @@ public sealed class MainWindow(
                 }
                 bool on = s.ToggleValues[i] != 0;
                 if (ImGui.Checkbox($"{t.Label}##t{i}", ref on)) battle.set_toggle(i, on);
+                ImGui.SameLine();
+                Txt.D(t.Effect);
                 string? risk = t.Risk switch {
                     BattleDebug.Risk.Stalls   => "stalls the battle while on",
                     BattleDebug.Risk.Progress => "loses the battle's progress",
@@ -155,6 +172,8 @@ public sealed class MainWindow(
                     else battle.run_cheat(c);
                 }
                 ImGui.EndDisabled();
+                ImGui.SameLine();
+                Txt.D(c.Effect);
             }
             ImGui.BeginDisabled(!in_battle);
             if (ImGui.Button("Party to 1 HP")) battle.weak(false, true);
@@ -169,7 +188,7 @@ public sealed class MainWindow(
             bool popup_open = true;
             if (ImGui.BeginPopupModal("Confirm cheat", ref popup_open, ImGuiWindowFlags.AlwaysAutoResize)) {
                 BattleDebug.Cheat? c = _confirm_cheat;
-                Txt.T(c?.Label ?? "");
+                Txt.T(c is null ? "" : $"{c.Label}: {c.Effect}.");
                 Txt.C(RED, c is { StoryBreaking: true } ? "Out of story order. Your next save keeps this." : "Your next save keeps this.");
                 if (ImGui.Button("Do it") && c is not null) { battle.run_cheat(c); ImGui.CloseCurrentPopup(); }
                 ImGui.SameLine();
@@ -179,6 +198,7 @@ public sealed class MainWindow(
         }
 
         if (ImGui.CollapsingHeader("Start a battle")) {
+            Txt.D("Pick a battle area and an encounter in it, look it up, then start it from the field.");
             ImGui.SetNextItemWidth(120);
             ImGui.InputInt("Field", ref _field_index);
             ImGui.SameLine();
@@ -196,6 +216,7 @@ public sealed class MainWindow(
         if (ImGui.CollapsingHeader("Actors", ImGuiTreeNodeFlags.DefaultOpen)) {
             bool status_line = battle.native_status_line;
             if (ImGui.Checkbox("Game's debug status line", ref status_line)) battle.native_status_line = status_line;
+            Txt.Help("The developers' one-line battle status, drawn by the game in battle while a message window is shown. Experimental.");
             draw_actors(s);
         }
     }
@@ -263,10 +284,14 @@ public sealed class MainWindow(
         if (ImGui.SliderFloat("Fly speed", ref fly_speed, 5f, 400f, "%.0f")) field.set_fly_speed(fly_speed);
         bool keys = field.bind_camera_keys;
         if (ImGui.Checkbox("F10 fly, F11 photo pause", ref keys)) field.bind_camera_keys = keys;
+        Txt.Help("Fly closes this window, since the game gets no mouse or keyboard input while it's open; F9 brings it back. "
+               + "Move the mouse to look, Up/Down move forward and back, Left/Right strafe. Right-drag moves closer, "
+               + "middle-drag pans, left-drag turns faster. Photo pause freezes the world and mutes the sound.");
         string[] op = gu.op_lines;
         if (op.Length > 0) Txt.D(string.Join("   ", op));
 
         ImGui.SeparatorText("Map jump");
+        Txt.C(RED, "Jumping out of story order can break your progress.");
         FieldTools.MapEntry[]? maps = field.maps;
         if (maps is not null) {
             ImGui.SetNextItemWidth(160);
@@ -294,8 +319,11 @@ public sealed class MainWindow(
         ImGui.EndDisabled();
         ImGui.SameLine();
         if (ImGui.Button("Model viewer")) field.go_to_model_viewer(panels);
+        Txt.Help("Goes to the developers' model viewer map and turns the debug flag on, so its panels work and you can leave again.");
 
         ImGui.SeparatorText("Developer saves");
+        Txt.W("Saves the developers used to start each part of the story. Loading one replaces the running game and "
+            + "takes you to its map. Your own save files stay as they are until you save.");
         ImGui.SetNextItemWidth(120);
         ImGui.InputInt("Section", ref _viewer_save);
         _viewer_save = Math.Clamp(_viewer_save, 1, FieldTools.VIEWER_SAVE_COUNT);
@@ -328,6 +356,7 @@ public sealed class MainWindow(
         ImGui.InputTextWithHint("##logfilter", "filter", ref _log_filter, 128);
         ImGui.SameLine();
         Txt.D($"{log.total} lines");
+        Txt.Help("Messages the game's code still writes to the developers' console. The released game never shows them.");
         if (ImGui.BeginChild("log", Vector2.Zero, ImGuiChildFlags.Borders, ImGuiWindowFlags.HorizontalScrollbar)) {
             foreach (string line in log.lines()) {
                 if (_log_filter.Length > 0 && !line.Contains(_log_filter, StringComparison.OrdinalIgnoreCase)) continue;

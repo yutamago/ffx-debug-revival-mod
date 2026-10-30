@@ -51,6 +51,7 @@ public sealed class ScriptDebuggerUi(ScriptDebugger dbg) {
                 Txt.C(RED, $"Stopped at breakpoint {b.Slot + 1}.");
             }
         }
+        if (sel != 0) Txt.D("Breakpoints and single steps work in the event's scripts (ctrl work 0) only.");
         if (dbg.status.Length > 0) Txt.C(YELLOW, dbg.status);
 
         Vector2 avail = ImGui.GetContentRegionAvail();
@@ -119,6 +120,7 @@ public sealed class ScriptDebuggerUi(ScriptDebugger dbg) {
     private void draw_code(CtrlSnap cs, WorkerSnap w) {
         Listing? l = dbg.listing;
         ImGui.Checkbox("Follow PC", ref _follow_pc);
+        if (cs.Index == 0) { ImGui.SameLine(); Txt.D("click a line to set or clear a breakpoint (4 at most)"); }
         if (l is null) return;
         if (l.Error.Length > 0) { Txt.C(RED, l.Error); return; }
         if (l.LocalIndex != w.LocalIndex) { ImGui.SameLine(); Txt.D($"in the code of block worker {l.LocalIndex}"); }

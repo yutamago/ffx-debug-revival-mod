@@ -12,22 +12,22 @@ public sealed unsafe class TweakPanels(Guards guards, DebugFlag flag) {
     /// <param name="ViewerOnly">The handler returns at once without the debug flag.</param>
     /// <param name="TextUtil">Offset of the panel's TextUtil; W/HOffset hold the size TextUtil_resize takes.</param>
     public sealed record Panel(int Mode, string Name, uint Instance, uint HandleInput, uint ShownOffset, uint CursorOffset,
-                               bool ViewerOnly, string? Warning, uint TextUtil, uint WOffset, uint HOffset);
+                               bool ViewerOnly, string Note, string? Warning, uint TextUtil, uint WOffset, uint HOffset);
 
     public const int NONE = 10;
     private const int TEXTURE_ANIMATION = 5;
 
     public static readonly Panel[] PANELS = [
-        new(0, "Character lighting",          0x00ccca88, 0x006a8e40, 0xc8,  0,     false, null, 0x04, 0xe0, 0xe4),
-        new(1, "Post process",                0x00ccc89c, 0x00693720, 0x180, 0x17c, false, null, 0x08, 0x188, 0x18c),
-        new(2, "Character switch",            0x00cccac4, 0x006b8820, 0xd4,  0xd0,  true,  "don't save afterwards", 0x04, 0xdc, 0xe0),
-        new(3, "Map switch",                  0x00cccac8, 0x006b9160, 0x1f4, 0,     true,  null, 0x04, 0x1fc, 0x200),
-        new(4, "Character animation",         0x00cccadc, 0x006b85c0, 0xc0,  0,     true,  null, 0x18, 0xc8, 0xcc),
-        new(5, "Character texture animation", 0x00cccad4, 0x006b8a20, 0xd0,  0,     true,  null, 0x20, 0xd8, 0xdc),
-        new(6, "Basic debug",                 0x00cccad0, 0x006b7630, 0x100, 0xfc,  false, null, 0x34, 0x108, 0x10c),
-        new(7, "Battle debug",                0x00cccad8, 0x006b81d0, 0x1c4, 0x1c0, false, null, 0x114, 0x1cc, 0x1d0),
-        new(8, "Battle character params",     0x00cccae0, 0x006b7af0, 0xfc,  0xf8,  false, "edits live battle stats", 0x20, 0x104, 0x108),
-        new(9, "Game params",                 0x00cccae4, 0x006b8ce0, 0xe8,  0xe4,  false, "edits your save", 0x14, 0xf0, 0xf4),
+        new(0, "Character lighting",          0x00ccca88, 0x006a8e40, 0xc8,  0,     false, "light direction, intensity and ambient colour of the characters", null, 0x04, 0xe0, 0xe4),
+        new(1, "Post process",                0x00ccc89c, 0x00693720, 0x180, 0x17c, false, "fog, glow, shading, sharpening, anti-aliasing and colour", null, 0x08, 0x188, 0x18c),
+        new(2, "Character switch",            0x00cccac4, 0x006b8820, 0xd4,  0xd0,  true,  "swaps the player's model", "don't save afterwards", 0x04, 0xdc, 0xe0),
+        new(3, "Map switch",                  0x00cccac8, 0x006b9160, 0x1f4, 0,     true,  "pick a map by area and number, Enter jumps there", null, 0x04, 0x1fc, 0x200),
+        new(4, "Character animation",         0x00cccadc, 0x006b85c0, 0xc0,  0,     true,  "plays the model's animations, after a Character switch", null, 0x18, 0xc8, 0xcc),
+        new(5, "Character texture animation", 0x00cccad4, 0x006b8a20, 0xd0,  0,     true,  "plays the model's texture animations", null, 0x20, 0xd8, 0xdc),
+        new(6, "Basic debug",                 0x00cccad0, 0x006b7630, 0x100, 0xfc,  false, "encounters, interface, minimap, 4:3 frame, developer saves and more", null, 0x34, 0x108, 0x10c),
+        new(7, "Battle debug",                0x00cccad8, 0x006b81d0, 0x1c4, 0x1c0, false, "pick a battle, never die, control the monsters; line 4 + Enter starts it", null, 0x114, 0x1cc, 0x1d0),
+        new(8, "Battle character params",     0x00cccae0, 0x006b7af0, 0xfc,  0xf8,  false, "party and monster stats", "changes them every frame while the cursor is below the first line", 0x20, 0x104, 0x108),
+        new(9, "Game params",                 0x00cccae4, 0x006b8ce0, 0xe8,  0xe4,  false, "items, gil, abilities, sphere levels, names, play time", "changes your save", 0x14, 0xf0, 0xf4),
     ];
 
     public volatile bool input_enabled;

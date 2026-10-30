@@ -6,79 +6,79 @@ namespace Yuta.DebugRevival.Features;
 
 /// <summary>
 ///     Battle debug: the BattleConfig window's switches, which the battle code still reads without checking the debug
-///     flag, the Ms debug cheats, the scene picker and an actor inspector. docs/research/battle.md has what each does.
+///     flag, the Ms debug cheats, the scene picker and an actor inspector. docs/research/battle.md has the evidence for each.
 /// </summary>
 public sealed unsafe class BattleDebug {
     public enum Risk { None, Stalls, Progress, Untested }
 
-    public sealed record Toggle(uint Va, string Group, string Label, bool IsU32 = false, Risk Risk = Risk.None);
+    public sealed record Toggle(uint Va, string Group, string Label, string Effect, bool IsU32 = false, Risk Risk = Risk.None);
 
     public static readonly Toggle[] TOGGLES = [
-        new(0x0112a908, "Damage", "No damage variance"),
-        new(0x0112a909, "Damage", "Never critical"),
-        new(0x0112a90d, "Damage", "Always critical"),
-        new(0x0112a90a, "Damage", "Always hit"),
-        new(0x0112a91f, "Damage", "Always miss"),
-        new(0x0112a906, "Damage", "No status effects"),
-        new(0x0112a914, "Damage", "No overkill"),
-        new(0x0112a90e, "Damage", "Every result = 1"),
-        new(0x0112a90f, "Damage", "Every result = 9999"),
-        new(0x0112a910, "Damage", "Every result = 99999"),
+        new(0x0112a908, "Damage", "No damage variance", "damage without its random spread"),
+        new(0x0112a909, "Damage", "Never critical", "no critical hits"),
+        new(0x0112a90d, "Damage", "Always critical", "every hit is critical, unless Never critical is on"),
+        new(0x0112a90a, "Damage", "Always hit", "attacks never miss; steals, bribes, statuses and drops always work"),
+        new(0x0112a91f, "Damage", "Always miss", "every attack and status misses and escapes fail, for both sides"),
+        new(0x0112a906, "Damage", "No status effects", "nobody gets a status effect"),
+        new(0x0112a914, "Damage", "No overkill", "kills never count as overkills"),
+        new(0x0112a90e, "Damage", "Every result = 1", "every damage and heal is 1"),
+        new(0x0112a90f, "Damage", "Every result = 9999", "every damage and heal is 10000, then capped"),
+        new(0x0112a910, "Damage", "Every result = 99999", "every damage and heal is 100000, then capped"),
 
-        new(0x0112a8f9, "Survival", "Party invincible"),
-        new(0x0112a8f8, "Survival", "Monsters invincible"),
-        new(0x0113338c, "Survival", "Main characters never die", IsU32: true),
-        new(0x0112a91d, "Survival", "Party enters with 1 HP"),
-        new(0x0112a91e, "Survival", "Monsters enter with 1 HP"),
+        new(0x0112a8f9, "Survival", "Party invincible", "the party loses no HP or MP"),
+        new(0x0112a8f8, "Survival", "Monsters invincible", "monsters lose no HP or MP"),
+        new(0x0113338c, "Survival", "Main characters never die", "the seven main characters take no damage; everyone else dies in one hit", IsU32: true),
+        new(0x0112a91d, "Survival", "Party enters with 1 HP", "party members start the next battle at 1 HP"),
+        new(0x0112a91e, "Survival", "Monsters enter with 1 HP", "monsters start the next battle at 1 HP"),
 
-        new(0x0112a901, "Resources", "Free MP"),
-        new(0x0112a90c, "Resources", "Overdrive always ready"),
-        new(0x0112a916, "Resources", "Overdrive gauge frozen"),
+        new(0x0112a901, "Resources", "Free MP", "commands cost no MP"),
+        new(0x0112a90c, "Resources", "Overdrive always ready", "overdrives work with any gauge"),
+        new(0x0112a916, "Resources", "Overdrive gauge frozen", "the overdrive gauge never fills"),
 
-        new(0x0112a911, "Rewards", "Always rare steal/drop"),
-        new(0x0112a912, "Rewards", "AP x100"),
-        new(0x0112a913, "Rewards", "Gil x100"),
+        new(0x0112a911, "Rewards", "Always rare steal/drop", "steals and drops give the rare item"),
+        new(0x0112a912, "Rewards", "AP x100", "100 times the AP after the battle"),
+        new(0x0112a913, "Rewards", "Gil x100", "100 times the gil after the battle"),
 
-        new(0x0112a8fa, "Flow", "Control the monsters"),
-        new(0x0112a8fb, "Flow", "CTB same order"),
-        new(0x0112a900, "Flow", "Skip spell effects"),
-        new(0x0112a904, "Flow", "Summon without effect"),
-        new(0x0112a915, "Flow", "Always sensor"),
-        new(0x0112a8e1, "Flow", "Pause the CTB", Risk: Risk.Stalls),
-        new(0x0112a91c, "Flow", "Hold effects", Risk: Risk.Stalls),
-        new(0x0112a922, "Flow", "Skip every command", Risk: Risk.Untested),
+        new(0x0112a8fa, "Flow", "Control the monsters", "you choose the monsters' commands"),
+        new(0x0112a8fb, "Flow", "CTB same order", "turns go round in a fixed order"),
+        new(0x0112a900, "Flow", "Skip spell effects", "spells and abilities without their animation"),
+        new(0x0112a904, "Flow", "Summon without effect", "aeons are summoned without their usual effect"),
+        new(0x0112a915, "Flow", "Always sensor", "enemy info is always shown, as with Sensor"),
+        new(0x0112a8e1, "Flow", "Pause the CTB", "nobody gets a turn while on", Risk: Risk.Stalls),
+        new(0x0112a91c, "Flow", "Hold effects", "the next command's animation waits until this is off", Risk: Risk.Stalls),
+        new(0x0112a922, "Flow", "Skip every command", "the developers' 'Skip Command'; may hide every command", Risk: Risk.Untested),
 
-        new(0x0112a8fc, "Camera", "Battle camera off"),
-        new(0x0112a926, "Camera", "No head tracking"),
-        new(0x0112a927, "Camera", "No focus reset"),
-        new(0x0112a924, "Camera", "Camera priority mask"),
+        new(0x0112a8fc, "Camera", "Battle camera off", "the automatic battle camera stops moving"),
+        new(0x0112a926, "Camera", "No head tracking", "characters stop turning their heads"),
+        new(0x0112a927, "Camera", "No focus reset", "the view doesn't re-centre after a special camera"),
+        new(0x0112a924, "Camera", "Camera priority mask", "from the next battle, scripted camera changes are ignored"),
 
-        new(0x0112a91a, "Developer", "Discard battle results", Risk: Risk.Progress),
-        new(0x0112a918, "Developer", "Slow battle loading"),
-        new(0x0112a902, "Developer", "Every spell plays effect 0"),
-        new(0x0112a903, "Developer", "Event effects use file 0"),
-        new(0x0112a917, "Developer", "Test hit effects"),
-        new(0x0112a91b, "Developer", "Map circle"),
-        new(0x0112a907, "Developer", "Invert 'will die'"),
-        new(0x0112a90b, "Developer", "Print voice info"),
-        new(0x0112a920, "Developer", "New game: all weapons"),
+        new(0x0112a91a, "Developer", "Discard battle results", "HP, MP and AP from the battle aren't kept", Risk: Risk.Progress),
+        new(0x0112a918, "Developer", "Slow battle loading", "each loading step waits about a second"),
+        new(0x0112a902, "Developer", "Every spell plays effect 0", "every command shows the developers' test effect"),
+        new(0x0112a903, "Developer", "Event effects use file 0", "scripted effects show the developers' test effect"),
+        new(0x0112a917, "Developer", "Test hit effects", "a developer test for hit effects"),
+        new(0x0112a91b, "Developer", "Map circle", "shows a test circle when a battle map loads"),
+        new(0x0112a907, "Developer", "Invert 'will die'", "enemy AI's 'about to die' check gives the opposite answer"),
+        new(0x0112a90b, "Developer", "Print voice info", "writes voice lines to the Log tab"),
+        new(0x0112a920, "Developer", "New game: all weapons", "a new game hands out extra equipment"),
     ];
 
     /// <param name="ReadsDisc">Reads a file synchronously, so it must not run while a battle loads or ends.</param>
-    public sealed record Cheat(uint Va, string Label, bool SaveChanging, bool BattleOnly = false, bool StoryBreaking = false, bool ReadsDisc = false);
+    public sealed record Cheat(uint Va, string Label, string Effect, bool SaveChanging, bool BattleOnly = false, bool StoryBreaking = false, bool ReadsDisc = false);
 
     public static readonly Cheat[] CHEATS = [
-        new(0x007849d0, "All items x99", true),
-        new(0x007849c0, "Max gil", true),
-        new(0x007848b0, "All abilities", true, ReadsDisc: true),
-        new(0x00784ae0, "98 sphere levels", true),
-        new(0x00784b00, "Max stats", true),
-        new(0x00784c40, "Overdrive modes one action from learnt", true),
-        new(0x00784c20, "Every item x1", true),
-        new(0x00784cd0, "Empty inventory", true),
-        new(0x00784ac0, "All party members", true, StoryBreaking: true),
-        new(0x00784b60, "All aeons", true, StoryBreaking: true),
-        new(0x00784b80, "Everyone to 1 HP", false, BattleOnly: true),
+        new(0x007849d0, "All items x99", "99 of every item", true),
+        new(0x007849c0, "Max gil", "999,999,999 gil", true),
+        new(0x007848b0, "All abilities", "every character learns every ability", true, ReadsDisc: true),
+        new(0x00784ae0, "98 sphere levels", "every character gets 98 sphere levels", true),
+        new(0x00784b00, "Max stats", "HP 99999, MP 9999, every other stat 255", true),
+        new(0x00784c40, "Overdrive modes almost learnt", "every overdrive mode in progress needs one more action", true),
+        new(0x00784c20, "Every item x1", "1 of every item, replacing your counts", true),
+        new(0x00784cd0, "Empty inventory", "removes every item", true),
+        new(0x00784ac0, "All party members", "every character and aeon joins now", true, StoryBreaking: true),
+        new(0x00784b60, "All aeons", "every aeon joins now", true, StoryBreaking: true),
+        new(0x00784b80, "Everyone to 1 HP", "everyone in the battle, party included", false, BattleOnly: true),
     ];
 
     private const uint MS_DEBUG_WEAK_MONSTERS = 0x00784bc0;
