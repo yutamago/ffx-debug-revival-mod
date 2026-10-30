@@ -34,6 +34,7 @@ public sealed unsafe class ScriptDebugger {
     /// <summary>Breakpoints lifted by Continue, set again once no worker stands on them.</summary>
     private readonly List<Bp> _rearm = [];
     private int _listing_bp_version = -1;
+    private bool _listing_original;
     private int _bp_version;
 
     private D.ExecCtrlWorksFn? _next_exec;
@@ -43,12 +44,12 @@ public sealed unsafe class ScriptDebugger {
     public CtrlSnap? ctrl(int i) => Volatile.Read(ref _ctrls[i]);
     public volatile Listing? listing;
     public volatile VarSnap[]? variables;
-    public volatile string status = "";
 
     public volatile int selected_ctrl;
     public volatile int selected_worker = -1;
     /// <summary>The block worker whose code to list; -1 lists the one that holds the PC.</summary>
     public volatile int listing_override = -1;
+    public volatile bool original_names;
 
     public ScriptDebugger(FhLogger log, NativeNames names) {
         _log   = log;
@@ -78,7 +79,8 @@ public sealed unsafe class ScriptDebugger {
         try {
             if (_step is { } s && s.ctrl >= from && s.ctrl < to) {
                 set_state(s.ctrl, 3);
-                status = s.stepped ? "stepped one instruction" : "the worker did not run (not runnable, or waiting)";
+                if (s.stepped) Status.done("stepped one instruction");
+                else Status.refused("the worker did not run: it is waiting or not runnable");
                 _step = null;
             }
             for (int c = Math.Max(0, from); c < Math.Min(to, G.CtrlWorkCount); c++) {
@@ -111,8 +113,8 @@ public sealed unsafe class ScriptDebugger {
         }
     }
 
-    public void pause(int c)      => _commands.Enqueue(() => { set_state(c, 3); status = $"ctrl {c} paused"; });
-    public void frame_step(int c) => _commands.Enqueue(() => { set_state(c, 2); status = $"ctrl {c}: one frame"; });
+    public void pause(int c)      => _commands.Enqueue(() => { set_state(c, 3); Status.done($"ctrl {c} paused"); });
+    public void frame_step(int c) => _commands.Enqueue(() => { set_state(c, 2); Status.done($"ctrl {c}: one frame"); });
 
     /// <summary>Continues. The breakpoint it stopped on stays lifted until no worker stands on it, since an instruction that spans frames would stop again at once.</summary>
     public void resume(int c) => _commands.Enqueue(() => {
@@ -126,28 +128,29 @@ public sealed unsafe class ScriptDebugger {
             }
         }
         set_state(c, 0);
-        status = $"ctrl {c} running";
+        Status.done($"ctrl {c} running");
     });
 
     /// <summary>Runs one instruction of one event worker, then leaves the event stopped.</summary>
     public void step(int c, int worker_index) => _commands.Enqueue(() => {
-        if (c != 0) { status = "single steps work only in the event's scripts (ctrl 0)"; return; }
+        if (c != 0) { Status.refused("single steps work only in the event's scripts (ctrl 0)"); return; }
+        if (worker_index < 0) { Status.refused("select a worker first"); return; }
         CtrlSnap? cs = ctrl(c);
         WorkerSnap? w = cs?.Workers.FirstOrDefault(x => x.Index == worker_index);
-        if (w is null || !w.HasLevels) { status = "that worker has no code of its own to step"; return; }
+        if (w is null || !w.HasLevels) { Status.refused("that worker has no code of its own to step"); return; }
         _step = (c, w.Ptr, false);
     });
 
     /// <summary>Sets or clears a breakpoint. <paramref name="print"/> fingerprints the listing the click came from, so a click on an outdated listing is refused.</summary>
     public void toggle_breakpoint(int c, nint block, ulong print, uint code_offset) => _commands.Enqueue(() => {
-        if (c != 0) { status = "breakpoints work only in the event's scripts (ctrl 0)"; return; }
+        if (c != 0) { Status.refused("breakpoints work only in the event's scripts (ctrl 0)"); return; }
         nint ctrl = ctrl_ptr(c);
         if ((*(byte*)ctrl & 1) == 0 || *(nint*)(ctrl + 0x48) != block || fingerprint(block) != print) {
-            status = "the script changed; click again in the new listing";
+            Status.refused("the script changed; click again in the new listing");
             return;
         }
         uint code_len = *(uint*)block;
-        if (code_offset >= code_len) { status = "outside the event's code"; return; }
+        if (code_offset >= code_len) { Status.refused("outside the event's code"); return; }
         nint ptr = block + (nint)(*(uint*)(block + 0x30)) + (nint)code_offset;
 
         int existing = _our_bps.FindIndex(b => b.Ctrl == c && b.Ptr == ptr);
@@ -155,20 +158,19 @@ public sealed unsafe class ScriptDebugger {
             clear_bp(_our_bps[existing]);
             _our_bps.RemoveAt(existing);
             _bp_version++;
-            status = $"breakpoint at {code_offset:x5} cleared";
+            Status.done($"breakpoint at {code_offset:x5} cleared");
             return;
         }
         int rearming = _rearm.FindIndex(b => b.Ctrl == c && b.Ptr == ptr);
         if (rearming >= 0) {
             _rearm.RemoveAt(rearming);
             _bp_version++;
-            status = $"breakpoint at {code_offset:x5} cleared";
+            Status.done($"breakpoint at {code_offset:x5} cleared");
             return;
         }
-        if (*(byte*)ptr == 0x40) { status = "there is a breakpoint byte there already"; return; }
-        status = arm(new Bp(c, -1, block, ptr, *(byte*)ptr, print)) is int slot
-            ? $"breakpoint {slot + 1} at {code_offset:x5}"
-            : "all 4 breakpoint slots of this ctrl work are in use";
+        if (*(byte*)ptr == 0x40) { Status.refused("there is a breakpoint byte there already"); return; }
+        if (arm(new Bp(c, -1, block, ptr, *(byte*)ptr, print)) is int slot) Status.done($"breakpoint {slot + 1} at {code_offset:x5}");
+        else Status.refused("all 4 breakpoints are in use");
     });
 
     public void clear_all_breakpoints() => _commands.Enqueue(() => {
@@ -176,7 +178,7 @@ public sealed unsafe class ScriptDebugger {
         _our_bps.Clear();
         _rearm.Clear();
         _bp_version++;
-        status = "breakpoints cleared";
+        Status.done("breakpoints cleared");
     });
 
     private static nint ctrl_ptr(int c) => Mem.at(G.AtelCtrlWorks) + c * G.CtrlWorkSize;
@@ -245,7 +247,7 @@ public sealed unsafe class ScriptDebugger {
             if (same && *(byte*)b.Ptr == 0x40) *(byte*)b.Ptr = b.Saved;
             _our_bps.RemoveAt(i);
             _bp_version++;
-            status = "a breakpoint was dropped: its script was unloaded";
+            Status.refused("a breakpoint was dropped: its script was unloaded");
         }
         _rearm.RemoveAll(b => !same_script(b));
     }
@@ -388,8 +390,9 @@ public sealed unsafe class ScriptDebugger {
         if (block is null || local < 0 || local >= block.Workers.Count) {
             listing = new Listing(w.Block, 0, 0, local, [], [], block is null ? error : "this worker has no code in its block");
         }
-        else if (listing is not { } old || old.Block != w.Block || old.Print != print || old.LocalIndex != local || _listing_bp_version != _bp_version) {
-            List<Line> lines = block.disassemble(local, _names.annotate);
+        else if (listing is not { } old || old.Block != w.Block || old.Print != print || old.LocalIndex != local || _listing_bp_version != _bp_version || _listing_original != original_names) {
+            _listing_original = original_names;
+            List<Line> lines = block.disassemble(local, _names.annotate, _listing_original);
             Dictionary<uint, int> line_of = [];
             for (int k = 0; k < lines.Count; k++) {
                 if (!lines[k].IsLabel) line_of.TryAdd(lines[k].Offset, k);

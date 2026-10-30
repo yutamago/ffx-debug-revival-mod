@@ -156,23 +156,24 @@ public sealed class ScriptBlock {
 
     public int variable_count(int worker) => _r.u16(Workers[worker].Header + 2);
 
-    /// <summary>One instruction as text, without the native-call annotation.</summary>
-    public string render(int worker, Instr ins) {
+    /// <summary>One instruction as text, without the native-call annotation. <paramref name="original"/> uses FFX.exe's own opcode names.</summary>
+    public string render(int worker, Instr ins, bool original = false) {
         Opcodes.Info op = Opcodes.Table[ins.Opcode];
-        if (ins.Value is not ushort v) return op.Name;
+        string name = original && op.Original.Length > 0 ? op.Original : op.Name;
+        if (ins.Value is not ushort v) return name;
         return op.Operand switch {
-            Operand.Label  => $"{op.Name} l{v}",
-            Operand.Int    => int_const(worker, v) is int c ? $"{op.Name} c{v,-8} ; {c}" : $"{op.Name} c{v}",
-            Operand.Float  => float_const(worker, v) is float f ? $"{op.Name} f{v,-8} ; {RustFloat.debug(f)}" : $"{op.Name} f{v}",
-            Operand.Imm    => $"{op.Name} {(short)v}",
-            Operand.Var    => $"{op.Name} v{v}",
-            Operand.Worker => $"{op.Name} w{v}",
-            _              => $"{op.Name} 0x{v:x4}",
+            Operand.Label  => $"{name} l{v}",
+            Operand.Int    => int_const(worker, v) is int c ? $"{name} c{v,-8} ; {c}" : $"{name} c{v}",
+            Operand.Float  => float_const(worker, v) is float f ? $"{name} f{v,-8} ; {RustFloat.debug(f)}" : $"{name} f{v}",
+            Operand.Imm    => $"{name} {(short)v}",
+            Operand.Var    => $"{name} v{v}",
+            Operand.Worker => $"{name} w{v}",
+            _              => $"{name} 0x{v:x4}",
         };
     }
 
     /// <summary>Disassembles one worker; <paramref name="annotate"/> names native ids.</summary>
-    public List<Line> disassemble(int worker, Func<ushort, string?>? annotate = null) {
+    public List<Line> disassemble(int worker, Func<ushort, string?>? annotate = null, bool original = false) {
         WorkerInfo w = Workers[worker];
         List<Line> lines = [];
         foreach (Instr ins in decode(w.Start, w.End)) {
@@ -182,7 +183,7 @@ public sealed class ScriptBlock {
             for (int i = 0; i < w.Labels.Length; i++) {
                 if (w.Labels[i] == ins.Offset) lines.Add(new Line(ins.Offset, true, $"l{i}:"));
             }
-            string text = render(worker, ins);
+            string text = render(worker, ins, original);
             if (Opcodes.Table[ins.Opcode].Operand == Operand.Func
              && ins.Value is ushort id
              && annotate?.Invoke(id) is string note) {

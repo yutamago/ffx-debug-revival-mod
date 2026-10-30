@@ -51,11 +51,7 @@ public sealed class MainWindow(
                    + "- a New Game starts at story step 5 instead of 0\n"
                    + "- outside a battle, L1+R1+L2+R2+X starts the battle picked in the Battle tab\n"
                    + "- the four model-viewer panels work");
-            string status = GameThread.last_status;
-            if (status.Length > 0) {
-                ImGui.SameLine();
-                Txt.C(YELLOW, status);
-            }
+            draw_status();
             if (ImGui.BeginTabBar("tabs")) {
                 if (ImGui.BeginTabItem("Scripts"))  { script.draw(); ImGui.EndTabItem(); }
                 if (ImGui.BeginTabItem("PS2 menu")) { draw_gu(); ImGui.EndTabItem(); }
@@ -67,6 +63,20 @@ public sealed class MainWindow(
             }
         }
         ImGui.End();
+    }
+
+    private static readonly Vector4 GREEN = new(0.55f, 0.9f, 0.55f, 1);
+
+    // Failures stay longer, so they aren't missed.
+    private static void draw_status() {
+        if (Status.line is not StatusLine l) return;
+        float shown = l.Tone == Tone.Failed ? 10f : 4f, fade = 1.5f;
+        float age = (Environment.TickCount64 - l.Stamp) / 1000f;
+        if (age > shown + fade) return;
+        Vector4 c = l.Tone switch { Tone.Done => GREEN, Tone.Refused => YELLOW, _ => RED };
+        c.W = Math.Clamp((shown + fade - age) / fade, 0f, 1f);
+        ImGui.SameLine();
+        Txt.C(c, l.Text);
     }
 
     // ------------------------------------------------------------------ panels
@@ -83,9 +93,7 @@ public sealed class MainWindow(
         ImGui.Separator();
         foreach (TweakPanels.Panel p in TweakPanels.PANELS) {
             bool usable = panels.usable(p);
-            ImGui.BeginDisabled(!usable);
             if (ImGui.RadioButton($"{p.Name}##p{p.Mode}", snap.Mode == p.Mode)) panels.show(p.Mode);
-            ImGui.EndDisabled();
             ImGui.SameLine();
             Txt.D(usable ? p.Note : $"needs the debug flag: {p.Note}");
             if (p.Warning is string warning) { ImGui.SameLine(); Txt.C(RED, warning); }
@@ -166,16 +174,13 @@ public sealed class MainWindow(
 
         if (ImGui.CollapsingHeader("Cheats")) {
             foreach (BattleDebug.Cheat c in BattleDebug.CHEATS) {
-                ImGui.BeginDisabled(c.BattleOnly && !in_battle);
                 if (ImGui.Button($"{c.Label}##c{c.Va:x}")) {
                     if (c.SaveChanging) { _confirm_cheat = c; ImGui.OpenPopup("Confirm cheat"); }
                     else battle.run_cheat(c);
                 }
-                ImGui.EndDisabled();
                 ImGui.SameLine();
                 Txt.D(c.Effect);
             }
-            ImGui.BeginDisabled(!in_battle);
             if (ImGui.Button("Party to 1 HP")) battle.weak(false, true);
             ImGui.SameLine();
             if (ImGui.Button("Party to full HP")) battle.weak(false, false);
@@ -183,7 +188,6 @@ public sealed class MainWindow(
             if (ImGui.Button("Monsters to 1 HP")) battle.weak(true, true);
             ImGui.SameLine();
             if (ImGui.Button("Monsters to full HP")) battle.weak(true, false);
-            ImGui.EndDisabled();
 
             bool popup_open = true;
             if (ImGui.BeginPopupModal("Confirm cheat", ref popup_open, ImGuiWindowFlags.AlwaysAutoResize)) {
@@ -207,9 +211,7 @@ public sealed class MainWindow(
             ImGui.SameLine();
             if (ImGui.Button("Look up")) battle.pick(_field_index, _encounter_index);
             ImGui.SameLine();
-            ImGui.BeginDisabled(in_battle);
             if (ImGui.Button("Start")) battle.start_picked();
-            ImGui.EndDisabled();
             Txt.T(battle.picker_result);
         }
 
@@ -314,9 +316,7 @@ public sealed class MainWindow(
         ImGui.SetNextItemWidth(120);
         ImGui.InputInt("Entrance", ref _entrance);
         ImGui.SameLine();
-        ImGui.BeginDisabled(!s.JumpAllowed);
         if (ImGui.Button("Jump")) field.jump(_map, _entrance);
-        ImGui.EndDisabled();
         ImGui.SameLine();
         if (ImGui.Button("Model viewer")) field.go_to_model_viewer(panels);
         Txt.Help("Goes to the developers' model viewer map and turns the debug flag on, so its panels work and you can leave again.");
@@ -328,9 +328,7 @@ public sealed class MainWindow(
         ImGui.InputInt("Section", ref _viewer_save);
         _viewer_save = Math.Clamp(_viewer_save, 1, FieldTools.VIEWER_SAVE_COUNT);
         ImGui.SameLine();
-        ImGui.BeginDisabled(!s.JumpAllowed);
         if (ImGui.Button("Load")) field.load_viewer_save(_viewer_save);
-        ImGui.EndDisabled();
         ImGui.SameLine();
         bool allow = guards.allow_viewer_saves;
         if (ImGui.Checkbox("Basic debug panel may load them", ref allow)) guards.allow_viewer_saves = allow;

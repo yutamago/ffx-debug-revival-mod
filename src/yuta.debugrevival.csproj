@@ -8,6 +8,7 @@
         <Version>0.1.0-alpha</Version>
         <Authors>Yutamago</Authors>
         <FhManifestFlags>NONE</FhManifestFlags>
+        <FhManifestHomePage>https://github.com/yutamago/ffx-debug-revival-mod</FhManifestHomePage>
     </PropertyGroup>
     <ItemGroup>
         <EmbeddedResource Include="Script/natives.tsv" LogicalName="natives.tsv" />

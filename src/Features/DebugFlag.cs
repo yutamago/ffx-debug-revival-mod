@@ -66,7 +66,7 @@ public sealed unsafe class DebugFlag {
     }
 
     public void set(bool value, TweakPanels panels) => GameThread.post(value ? "debug flag on" : "debug flag off", () => {
-        if (value && !hooks_ok) { GameThread.last_status = "the debug flag stays off: its safety hooks are not installed"; return; }
+        if (value && !hooks_ok) { Status.failed("the debug flag stays off: its safety hooks are not installed"); return; }
         if (value) {
             Mem.set_u8(G.FFXIsDebug, 1);
             // A normal boot never allocates the debug line buffer the flag's debug pass writes to.
@@ -78,7 +78,7 @@ public sealed unsafe class DebugFlag {
             Mem.set_u8(G.L2ExecFlag, 0); // only rewritten under the flag, so "L2 held" would stick
         }
         on = value;
-        GameThread.last_status = value ? "debug flag on" : "debug flag off";
+        Status.done(value ? "debug flag on" : "debug flag off");
     });
 
     /// <summary>Builds the developers' event list once. Game thread.</summary>

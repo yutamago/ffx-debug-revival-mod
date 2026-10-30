@@ -109,7 +109,7 @@ public sealed unsafe class GuToolkit(DebugFlag flag) {
             Calls.Gu_VSyncMain.fnptr!();
             Calls.Gu_Main.fnptr!(0, *(nint*)Mem.at(PACKET_BUFFER));
         }
-        catch (Exception e) { open = false; GameThread.last_status = $"the PS2 menu stopped: {e.Message}"; }
+        catch (Exception e) { open = false; Status.failed($"the PS2 menu stopped: {e.Message}"); }
     }
 
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
@@ -127,7 +127,7 @@ public sealed unsafe class GuToolkit(DebugFlag flag) {
             GsPrim[] prims = [ .. GifParser.parse(new ReadOnlySpan<byte>((void*)p, bytes), Mem.i32(SCREEN_W), Mem.i32(SCREEN_H)) ];
             frame = new Frame(Environment.TickCount64, Mem.i32(SCREEN_W), Mem.i32(SCREEN_H), prims);
         }
-        catch (Exception e) { frame = null; GameThread.last_status = $"the PS2 menu could not be drawn: {e.Message}"; }
+        catch (Exception e) { frame = null; Status.failed($"the PS2 menu could not be drawn: {e.Message}"); }
     }
 
     /// <summary>The toolkit's USB mouse: the Windows cursor while the mod captures it, still otherwise.</summary>
@@ -180,7 +180,7 @@ public sealed unsafe class GuToolkit(DebugFlag flag) {
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private int h_wmain(nint win, int msg, int id) {
         if (BLOCKED.TryGetValue((msg, id), out string? why)) {
-            GameThread.last_status = $"blocked: {why}";
+            Status.refused($"blocked: {why}");
             return 0;
         }
         _next_wmain ??= Calls.WMainProc.chain_from(h_wmain).fnptr!;
@@ -193,7 +193,7 @@ public sealed unsafe class GuToolkit(DebugFlag flag) {
 
     // Screen capture to the developers' PC.
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
-    private void h_capture_enable() { GameThread.last_status = "blocked: screen capture would hang"; }
+    private void h_capture_enable() { Status.refused("blocked: screen capture would hang"); }
 
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private void h_op_num(nint text) {

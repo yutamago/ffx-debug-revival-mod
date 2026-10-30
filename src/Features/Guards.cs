@@ -33,14 +33,13 @@ public sealed class Guards(FhLogger log) {
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private void h_reset_all() {
         log.Warning("Blocked StatsAndAchievements_ResetAll (Basic debug panel, 'Achievements Reset').");
-        GameThread.last_status = "blocked: 'Achievements Reset' would wipe your Steam achievements";
+        Status.refused("blocked: 'Achievements Reset' would wipe your Steam achievements");
     }
 
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private void h_viewer_save(int n) {
         if (!allow_viewer_saves && !viewer_save_once) {
-            GameThread.last_status = $"blocked developer save {n}";
-            return;
+            Status.refused($"blocked developer save {n}"); return;
         }
         viewer_save_once = false;
         Calls.TkDebugLoadViewerSave.chain_from(h_viewer_save).fnptr!(n);

@@ -84,8 +84,8 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
         if (bind_camera_keys) bind_keys();
         if (_fly_check >= 0 && fc != 0 && _frame >= _fly_check_frame) {
             int now = *(int*)fc;
-            GameThread.last_status = now == _fly_check ? "fly mode is not available here"
-                                   : now != 0 ? "fly mode on (F9 reopens this window)" : "fly mode off";
+            if (now == _fly_check) Status.refused("fly mode is not available here");
+            else Status.done(now != 0 ? "fly mode on (F9 reopens this window)" : "fly mode off");
             _fly_check = -1;
         }
         if (_frame % 30 == 0) _place = read_place();
@@ -126,7 +126,7 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
 
     public void set_encounters(bool on) => GameThread.post("encounters", () => {
         Calls.setBattleEnable.fnptr!(on ? 1 : 0);
-        GameThread.last_status = on ? "random encounters on" : "random encounters off";
+        Status.done(on ? "random encounters on" : "random encounters off");
     });
 
     public void set_exec_frames(int n) => GameThread.post("game speed", () => Mem.set_u8(G.ExecFrames, (byte)Math.Clamp(n, 1, 8)));
@@ -136,7 +136,7 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
         flag.ensure_event_list();
         int count = Math.Clamp(Mem.i32(G.EventCount), 0, 1024);
         nint table = *(nint*)Mem.at(G.EventTable);
-        if (table == 0 || count == 0) { GameThread.last_status = "the map list could not be read"; return; }
+        if (table == 0 || count == 0) { Status.failed("the map list could not be read"); return; }
         MapEntry[] list = new MapEntry[count];
         for (int i = 0; i < count; i++) {
             nint e = table + i * 16;
@@ -154,10 +154,10 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
     });
 
     public void jump(int map, int entrance) => GameThread.post("map jump", () => {
-        if (!has_script(map)) { GameThread.last_status = $"map {map} has no script in the PC version"; return; }
-        if (!jump_allowed()) { GameThread.last_status = "the map can't be left right now"; return; }
+        if (!has_script(map)) { Status.refused($"map {map} has no script in the PC version"); return; }
+        if (!jump_allowed()) { Status.refused("you can't leave this map right now; the debug flag allows it"); return; }
         Calls.AtelSetEventJump2.fnptr!(map, entrance, 0);
-        GameThread.last_status = $"jumping to map {map}, entrance {entrance}";
+        Status.done($"jumping to map {map}, entrance {entrance}");
     });
 
     /// <summary>The flag goes on first: the viewer panels need it, and it lets the player leave the viewer map.</summary>
@@ -167,22 +167,21 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
     }
 
     public void load_viewer_save(int n) => GameThread.post("developer save", () => {
-        if (!jump_allowed()) { GameThread.last_status = "the map can't be left right now"; return; }
+        if (!jump_allowed()) { Status.refused("you can't leave this map right now; the debug flag allows it"); return; }
         Mem.set_u32(G.ViewerSaveLast, 0xffffffff); // the loader skips a repeat of the last one
         guards.viewer_save_once = true;
         Calls.TkDebugLoadViewerSave.fnptr!(n);
         guards.viewer_save_once = false;
-        GameThread.last_status = $"developer save {n} loaded";
+        Status.done($"developer save {n} loaded");
     });
 
     /// <summary>Presses the free camera's own toggle bit for one frame, so the game attaches the fly controller itself.</summary>
     public void toggle_fly() => GameThread.post("free camera", () => {
         nint fc = *(nint*)Mem.at(G.FreeCamera);
-        if (fc == 0) { GameThread.last_status = "no free camera yet"; return; }
+        if (fc == 0) { Status.refused("no free camera yet"); return; }
         if (Mem.u8(G.AsyncControllerOn) != 0 || Mem.i32(G.PauseRequest) != 0 || Mem.i32(G.PauseEntered) != 0
          || NO_FREE_CAMERA_MAPS.Contains(*Fahrenheit.FFX.Globals.event_id)) {
-            GameThread.last_status = "fly mode is not available here";
-            return;
+            Status.refused("fly mode is not available here"); return;
         }
         uint* im = (uint*)Mem.at(G.InputManager);
         im[0] |= FLY_BIT;
@@ -193,7 +192,7 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
 
     public void toggle_photo_pause() => GameThread.post("photo pause", () => {
         nint fc = *(nint*)Mem.at(G.FreeCamera);
-        if (fc == 0) { GameThread.last_status = "no free camera yet"; return; }
+        if (fc == 0) { Status.refused("no free camera yet"); return; }
         Calls.FreeCamera_setFreePause.fnptr!(fc);
     });
 
