@@ -40,17 +40,14 @@ public sealed record WorkerInfo(
     uint   Start,
     uint   End);
 
-/// <summary>A line of disassembly: the instruction (or null for a label line) and its text.</summary>
+/// <summary>A line of disassembly: an instruction, or an entry or label line.</summary>
 public readonly record struct Line(uint Offset, bool IsLabel, string Text);
 
 /// <summary>
-///     Parses an event-script block and disassembles it in the text format of
-///     our Rust disassembler (<c>ffx script disasm</c>), so the two can be
-///     compared line for line. The layout (VERIFIED in FFX.exe and the Rust
-///     port): block +0x00 code length, +0x30 code start, +0x34 worker count,
-///     +0x38 u32 worker header offsets; header +0x00 kind, +0x02 variable count,
-///     +0x04 int constants, +0x06 float constants, +0x08 entries, +0x0a labels,
-///     +0x14/+0x18/+0x1c/+0x20/+0x24 the matching tables.
+///     Parses an event-script block and disassembles it in the format of ffx-decomp's <c>ffx script disasm</c>, so
+///     the two compare line for line. Block: +0x00 code length, +0x30 code start, +0x34 worker count, +0x38 worker
+///     header offsets. Header: +0x02 variables, +0x04 int and +0x06 float constants, +0x08 entries, +0x0a labels,
+///     with their tables at +0x14 to +0x24.
 /// </summary>
 public sealed class ScriptBlock {
     private const int WORKER_HEADER_LEN = 0x34;
@@ -58,14 +55,12 @@ public sealed class ScriptBlock {
     private readonly IBlockReader _r;
 
     public uint CodeStart { get; }
-    public uint CodeLength { get; }
     public IReadOnlyList<WorkerInfo> Workers { get; }
 
-    private ScriptBlock(IBlockReader r, uint code_start, uint code_len, List<WorkerInfo> workers) {
-        _r         = r;
-        CodeStart  = code_start;
-        CodeLength = code_len;
-        Workers    = workers;
+    private ScriptBlock(IBlockReader r, uint code_start, List<WorkerInfo> workers) {
+        _r        = r;
+        CodeStart = code_start;
+        Workers   = workers;
     }
 
     /// <summary>Parses a block, or returns null with the reason when it is malformed.</summary>
@@ -104,7 +99,7 @@ public sealed class ScriptBlock {
                 : (starts[i] >= code_len ? block_end : code_len);
             workers[i] = workers[i] with { Start = starts[i], End = end };
         }
-        return new ScriptBlock(r, code, code_len, workers);
+        return new ScriptBlock(r, code, workers);
     }
 
     private static uint[]? table(IBlockReader r, uint header, int count_at, int offset_at) {
@@ -176,10 +171,7 @@ public sealed class ScriptBlock {
         };
     }
 
-    /// <summary>
-    ///     Disassembles one worker: entry and label lines, then each instruction
-    ///     indented by four spaces. <paramref name="annotate"/> names native ids.
-    /// </summary>
+    /// <summary>Disassembles one worker; <paramref name="annotate"/> names native ids.</summary>
     public List<Line> disassemble(int worker, Func<ushort, string?>? annotate = null) {
         WorkerInfo w = Workers[worker];
         List<Line> lines = [];
@@ -213,11 +205,7 @@ public sealed class ScriptBlock {
     }
 }
 
-/// <summary>
-///     Formats an f32 as Rust's <c>{:?}</c> does: the shortest digits that read
-///     back as the same float (exact ties rounded away from zero), ".0" on whole
-///     numbers, exponent form outside 1e-4..1e16.
-/// </summary>
+/// <summary>Formats an f32 as Rust's <c>{:?}</c> does: shortest round-trip digits, ".0" on whole numbers, exponent form outside 1e-4..1e16.</summary>
 public static class RustFloat {
     public static string debug(float f) {
         if (float.IsNaN(f)) return "NaN";

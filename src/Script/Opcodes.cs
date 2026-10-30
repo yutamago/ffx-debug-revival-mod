@@ -24,10 +24,8 @@ public enum Operand : byte {
 }
 
 /// <summary>
-///     The event-script (ATEL) opcodes. A byte's low 7 bits are the opcode; bit 7
-///     set means a little-endian u16 operand follows. Names follow our Rust
-///     disassembler (<c>ffx script disasm</c>); <see cref="Original"/> is the
-///     name in FFX.exe's own table at 0x00c54600.
+///     The event-script (ATEL) opcodes: the low 7 bits of a byte, with bit 7 set when a u16 operand follows. Names
+///     follow ffx-decomp's disassembler; <c>Original</c> is the name in FFX.exe's own table at 0x00c54600.
 /// </summary>
 public static class Opcodes {
     public readonly record struct Info(string Name, string Original, Operand Operand);

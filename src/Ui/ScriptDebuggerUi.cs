@@ -42,16 +42,16 @@ public sealed class ScriptDebuggerUi(ScriptDebugger dbg) {
         ImGui.SameLine();
         if (ImGui.Button("Clear breakpoints")) dbg.clear_all_breakpoints();
 
-        if (cs is null) { Txt.D("No snapshot yet: the scripts have not run since the mod loaded."); return; }
+        if (cs is null) { Txt.D("Waiting for the game."); return; }
         if (!cs.InUse) { Txt.D($"Ctrl work {sel} is not in use."); return; }
 
         Txt.T($"State: {cs.state_text}   workers: {cs.Actors} with code, {cs.Total} in all   block: 0x{cs.Block:x8}");
         foreach (BreakpointSnap b in cs.Breakpoints) {
             if (b.Id >= 0 && b.Hit != 0 && cs.State == 3) {
-                Txt.C(RED, $"Stopped at breakpoint {b.Slot + 1}. Continue runs the instruction it replaced.");
+                Txt.C(RED, $"Stopped at breakpoint {b.Slot + 1}.");
             }
         }
-        if (sel != 0) Txt.C(GREY, "Breakpoints and single steps work in the event's scripts (ctrl 0). Battle code also runs scripts outside the frame, so pausing a battle ctrl work may not freeze everything.");
+        if (sel != 0) Txt.D("Breakpoints and single steps work in the event's scripts (ctrl work 0) only.");
         if (dbg.status.Length > 0) Txt.C(YELLOW, dbg.status);
 
         Vector2 avail = ImGui.GetContentRegionAvail();
@@ -120,11 +120,10 @@ public sealed class ScriptDebuggerUi(ScriptDebugger dbg) {
     private void draw_code(CtrlSnap cs, WorkerSnap w) {
         Listing? l = dbg.listing;
         ImGui.Checkbox("Follow PC", ref _follow_pc);
-        ImGui.SameLine();
-        Txt.D(cs.Index == 0 ? "Click an instruction to set or clear a breakpoint (4 at most)." : "");
-        if (l is null) { Txt.D("No listing yet."); return; }
+        if (cs.Index == 0) { ImGui.SameLine(); Txt.D("click a line to set or clear a breakpoint (4 at most)"); }
+        if (l is null) return;
         if (l.Error.Length > 0) { Txt.C(RED, l.Error); return; }
-        Txt.D($"code of block worker {l.LocalIndex}" + (l.LocalIndex != w.LocalIndex ? $" (w{w.Index} is inside a call)" : ""));
+        if (l.LocalIndex != w.LocalIndex) { ImGui.SameLine(); Txt.D($"in the code of block worker {l.LocalIndex}"); }
 
         HashSet<uint> bp_offsets = [];
         nint code = l.Code;
@@ -141,7 +140,6 @@ public sealed class ScriptDebuggerUi(ScriptDebugger dbg) {
         _last_pc = w.Pc;
         _last_worker = w.Index;
 
-        // Draw only the visible lines.
         int first = Math.Max(0, (int)(ImGui.GetScrollY() / lh) - 1);
         int count = (int)(ImGui.GetWindowHeight() / lh) + 3;
         int last = Math.Min(l.Lines.Count, first + count);
@@ -180,7 +178,7 @@ public sealed class ScriptDebuggerUi(ScriptDebugger dbg) {
     }
 
     private static void draw_signals(WorkerSnap w) {
-        if (w.Signals.Length == 0) { Txt.D("No signals queued."); return; }
+        if (w.Signals.Length == 0) return;
         if (!ImGui.BeginTable("sig", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingFixedFit)) return;
         foreach (string h in (string[])[ "entry", "from", "to", "level", "state", "kind" ]) ImGui.TableSetupColumn(h);
         ImGui.TableHeadersRow();
@@ -198,8 +196,7 @@ public sealed class ScriptDebuggerUi(ScriptDebugger dbg) {
 
     private void draw_variables() {
         VarSnap[]? vars = dbg.variables;
-        if (vars is null || vars.Length == 0) { Txt.D("No variables."); return; }
-        Txt.D("Storage: GBL save data, LCL ctrl area, FIX/MY/DAT script block areas, ITR the worker's registers, LC2 block area.");
+        if (vars is null || vars.Length == 0) return;
         if (!ImGui.BeginTable("vars", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingFixedFit)) return;
         ImGui.TableSetupScrollFreeze(0, 1);
         foreach (string h in (string[])[ "var", "storage", "type", "len", "offset", "value" ]) ImGui.TableSetupColumn(h);

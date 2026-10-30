@@ -18,12 +18,10 @@ public sealed record WorkerSnap(
     ushort       Entry,
     byte         Level,
     ushort       Flags34,
-    ushort       Flags36,
     bool         HasLevels,
     uint         Pc,           // code offset of the current level's PC
     bool         PcValid,
     byte         Wait,
-    byte         NativeState,
     CallFrame[]  Calls,
     int[]        IntRegs,
     float[]      FloatRegs,
@@ -52,7 +50,7 @@ public sealed record WorkerSnap(
 }
 
 /// <summary>One of the 4 breakpoint entries of a ctrl work (+0x64, 16 bytes each).</summary>
-public sealed record BreakpointSnap(int Slot, int Id, uint Tag, nint Ptr, byte Saved, byte Hit);
+public sealed record BreakpointSnap(int Slot, int Id, nint Ptr, byte Saved, byte Hit);
 
 /// <summary>One ctrl work: the event's (0), battle's (2, 3), the menu's (6), ...</summary>
 public sealed record CtrlSnap(

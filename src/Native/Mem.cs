@@ -2,11 +2,7 @@
 
 namespace Yuta.DebugRevival.Native;
 
-/// <summary>
-///     Raw access to FFX.exe's memory. Addresses are the absolute virtual
-///     addresses of ffx-decomp's symbols/ffx.sym (image base 0x00400000);
-///     <see cref="at"/> rebases them onto the loaded module.
-/// </summary>
+/// <summary>FFX.exe's memory, addressed by ffx-decomp's symbols/ffx.sym VAs (image base 0x00400000).</summary>
 public static unsafe class Mem {
     private const nint IMAGE_BASE = 0x00400000;
 
@@ -33,7 +29,6 @@ public static unsafe class Mem {
     private const uint PAGE_NOACCESS = 0x01;
     private const uint PAGE_GUARD = 0x100;
 
-    /// <summary>The loaded FFX.exe's base, or the image base when it cannot be found.</summary>
     public static nint module_base {
         get {
             if (_base == 0) {
@@ -44,7 +39,6 @@ public static unsafe class Mem {
         }
     }
 
-    /// <summary>Converts an ffx.sym address to the live address.</summary>
     public static nint at(uint va) => module_base + ((nint)va - IMAGE_BASE);
 
     /// <summary>The FhCallLocation offset of an ffx.sym address.</summary>
@@ -52,7 +46,6 @@ public static unsafe class Mem {
 
     public static byte   u8 (uint va) => *(byte*)at(va);
     public static sbyte  i8 (uint va) => *(sbyte*)at(va);
-    public static ushort u16(uint va) => *(ushort*)at(va);
     public static uint   u32(uint va) => *(uint*)at(va);
     public static int    i32(uint va) => *(int*)at(va);
     public static float  f32(uint va) => *(float*)at(va);
@@ -60,21 +53,9 @@ public static unsafe class Mem {
     public static void set_u8 (uint va, byte v)  => *(byte*)at(va) = v;
     public static void set_u32(uint va, uint v)  => *(uint*)at(va) = v;
 
-    /// <summary>Whether <paramref name="length"/> bytes from <paramref name="p"/> are committed and readable.</summary>
-    public static bool readable(nint p, nint length) {
-        if (p == 0 || length < 0) return false;
-        nint end = p + length;
-        while (p < end) {
-            if (VirtualQuery(p, out MEMORY_BASIC_INFORMATION mbi, (nuint)sizeof(MEMORY_BASIC_INFORMATION)) == 0) return false;
-            if (mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) != 0 || mbi.Protect == 0) return false;
-            nint region_end = mbi.BaseAddress + (nint)mbi.RegionSize;
-            if (region_end <= p) return false;
-            p = region_end;
-        }
-        return true;
-    }
+    public static bool readable(nint p, nint length) => p != 0 && length > 0 && readable_end(p, length) == p + length;
 
-    /// <summary>The end of the committed, readable run of regions that holds <paramref name="p"/> (0 when unreadable).</summary>
+    /// <summary>The end of the committed, readable run of regions from <paramref name="p"/>, at most <paramref name="limit"/> bytes on; 0 when unreadable.</summary>
     public static nint readable_end(nint p, nint limit) {
         nint cur = p;
         while (cur < p + limit) {
@@ -87,7 +68,7 @@ public static unsafe class Mem {
         return cur > p ? Math.Min(cur, p + limit) : 0;
     }
 
-    /// <summary>A NUL-terminated ASCII string at a live address, at most <paramref name="max"/> bytes.</summary>
+    /// <summary>A NUL-terminated string at a live address; non-ASCII bytes read as '?'.</summary>
     public static string cstr(nint p, int max = 256) {
         if (p == 0) return "";
         StringBuilder sb = new();

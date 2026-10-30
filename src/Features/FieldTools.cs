@@ -5,56 +5,25 @@ using Yuta.DebugRevival.Native;
 namespace Yuta.DebugRevival.Features;
 
 /// <summary>
-///     Field-side debug features:
-///     <list type="bullet">
-///         <item>noclip: the debug pad's "L1 = walk through walls" (Sg_ControlMain) sets
-///               the flag Sg_GetIgnoreID returns, and clears it at the start of every
-///               frame; the hook answers 1 instead.</item>
-///         <item>game speed: the debug pad's frames-per-frame byte (L1+R1).</item>
-///         <item>random encounters on/off (the Basic debug panel's "Battle Enable").</item>
-///         <item>map jumps through AtelSetEventJump2, with the developers' event list.</item>
-///         <item>the ~110 developer saves in savesforviewer/ (the Basic debug panel's "Game Section").</item>
-///         <item>the PC port's free camera and photo pause, whose keys ship unbound.</item>
-///     </list>
-///     Facts: docs/research/overlays.md 4.1 and field.md.
+///     Field debug features: the debug pad's noclip and speed-up, random encounters, map jumps, the developer saves
+///     and the PC port's free camera (docs/research/overlays.md 4.1, field.md).
 /// </summary>
 public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
     public volatile bool noclip;
-
-    /// <summary>Bind the free camera to F10 (fly) and F11 (photo pause) while on.</summary>
     public volatile bool bind_camera_keys;
 
-    // Phyre key bindings (binding = Phyre key + 0x1c): F10 = 0x4a, F11 = 0x4b.
-    private const uint KEY_F10 = 0x4a;
-    private const uint KEY_F11 = 0x4b;
-    // Input map pairs (binding, bit) of the free camera's two actions, bound to a literal 0 in Input_BuildPadMap.
-    private static readonly (int pair, uint bit, uint key)[] CAMERA_PAIRS = [ (30, 0x40000, KEY_F10), (32, 0x100000, KEY_F11) ];
+    // (input map pair, action bit, Phyre key binding) of the free camera's two actions, which ship bound to nothing.
     private const uint FLY_BIT = 0x40000;
+    private static readonly (int pair, uint bit, uint key)[] CAMERA_PAIRS = [ (30, FLY_BIT, 0x4a /* F10 */), (32, 0x100000, 0x4b /* F11 */) ];
 
-    /// <summary>
-    ///     Whether the PC port can name the map's script file. The event loader
-    ///     (AtelEventSetUp -> TkCdReadWithMallocWithMessage(0xc, map * 0x12) ->
-    ///     Cd_QueueRead) copies the name CDfileName_PC returns without a NULL
-    ///     check, so a map whose entry in the PC name table (cdrom.fnd, at
-    ///     g_CdLib+0x30) is empty crashes the game. 54 of the 402 maps, mostly
-    ///     test events, have no entry. The entry is the event module's first
-    ///     file (i16 table at g_CdLib+0x2c, module 0xc) + map * 0x12; it is
-    ///     present when its end offset is past its start. Read-only.
-    /// </summary>
-    internal static bool script_name_present(int map) {
-        const uint CD_LIB = 0x02310c40;
-        nint names = *(nint*)Mem.at(CD_LIB + 0x30);
-        if (names == 0) return true;                       // HDD mode: names are not used
-        nint firsts = *(nint*)Mem.at(CD_LIB + 0x2c);
-        if (firsts == 0 || map < 0) return false;
-        int loc = *(short*)(firsts + 0xc * 2) + map * 0x12;
-        if (loc < 0 || loc >= *(int*)names) return false;
-        uint start = *(uint*)(names + 4 + 4 * loc), end = *(uint*)(names + 8 + 4 * loc);
-        return (int)(end - start) > 0;
-    }
+    private const int TITLE_MAP = 0x17;
+    private static readonly HashSet<int> NO_FREE_CAMERA_MAPS = [ TITLE_MAP, 0x15c, 0x15d ];
 
-    /// <summary>Ids in the event list with no script in the game files (field.md 4.3): jumping there fails.</summary>
-    public static readonly HashSet<int> NO_SCRIPT = [
+    public const int MODEL_VIEWER_MAP = 0;
+    public const int VIEWER_SAVE_COUNT = 0x71;
+
+    /// <summary>Ids in the event list with no script in the game files (field.md 4.3).</summary>
+    private static readonly HashSet<int> NO_SCRIPT = [
         40, 101, 111, 186, 216, 228, 229, 231, 232, 233, 246, 251, 262, 300, 304, 342,
         350, 353, 357, 358, 360, 369, 373, 379, 400, 401,
     ];
@@ -68,12 +37,12 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
     public volatile MapEntry[]? maps;
     private string _place = "";
     private long _frame;
-    private int _fly_check = -1;   // the type before a requested toggle, checked two frames later
+    private int _fly_check = -1;   // the camera type before a requested toggle, compared two frames later
     private long _fly_check_frame;
 
-    public bool init(FhModule owner) => Calls.Sg_GetIgnoreID.hook(owner, h_ignore_id);
-
     private D.RetIntFn? _next_ignore_id;
+
+    public bool init(FhModule owner) => Calls.Sg_GetIgnoreID.hook(owner, h_ignore_id);
 
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private int h_ignore_id() {
@@ -82,7 +51,26 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
         return _next_ignore_id();
     }
 
-    /// <summary>What AtelSetEventJump(2) checks: bit 0x80 of the current ctrl work's first byte ("may leave the map"), or the debug flag.</summary>
+    /// <summary>
+    ///     Whether the PC port can name the map's script file. The event loader copies that name without a NULL
+    ///     check, so a map with an empty entry in cdrom.fnd (54 of 402, mostly test events) crashes the game.
+    /// </summary>
+    private static bool script_name_present(int map) {
+        const uint CD_LIB = 0x02310c40;
+        const int EVENT_MODULE = 0xc, FILES_PER_MAP = 0x12;
+        nint names = *(nint*)Mem.at(CD_LIB + 0x30);
+        if (names == 0) return true; // HDD mode doesn't use the names
+        nint firsts = *(nint*)Mem.at(CD_LIB + 0x2c);
+        if (firsts == 0 || map < 0) return false;
+        int loc = *(short*)(firsts + EVENT_MODULE * 2) + map * FILES_PER_MAP;
+        if (loc < 0 || loc >= *(int*)names) return false;
+        uint start = *(uint*)(names + 4 + 4 * loc), end = *(uint*)(names + 8 + 4 * loc);
+        return (int)(end - start) > 0;
+    }
+
+    private static bool has_script(int map) => !NO_SCRIPT.Contains(map) && script_name_present(map);
+
+    /// <summary>AtelSetEventJump(2)'s own check: the current ctrl work allows leaving the map (bit 0x80), or the debug flag is on.</summary>
     internal static bool jump_allowed() {
         if (Mem.u8(G.FFXIsDebug) != 0) return true;
         nint ctx = *(nint*)Mem.at(G.ScriptContext);
@@ -92,24 +80,21 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
     /// <summary>Game thread, after each update.</summary>
     public void update() {
         _frame++;
-        int event_id = *Fahrenheit.FFX.Globals.event_id;
         nint fc = *(nint*)Mem.at(G.FreeCamera);
         if (bind_camera_keys) bind_keys();
         if (_fly_check >= 0 && fc != 0 && _frame >= _fly_check_frame) {
             int now = *(int*)fc;
-            GameThread.last_status = now != _fly_check
-                ? (now != 0 ? "fly mode on: move the mouse to look, arrows to move; F9 reopens the window" : "fly mode off")
-                : "the game did not switch fly mode here (paused, in a movie, or on the title screen?)";
+            GameThread.last_status = now == _fly_check ? "fly mode is not available here"
+                                   : now != 0 ? "fly mode on (F9 reopens this window)" : "fly mode off";
             _fly_check = -1;
         }
         if (_frame % 30 == 0) _place = read_place();
         snap = new Snapshot(
-            event_id, jump_allowed(), flag.on, Mem.u32(G.BattleEnable), Mem.i8(G.ExecFrames),
-            fc != 0 ? *(int*)fc : -1, fc != 0 && *(byte*)(fc + 0x338) != 0, fc != 0 ? *(float*)(fc + 8) : 0,
-            _place);
+            *Fahrenheit.FFX.Globals.event_id, jump_allowed(), flag.on, Mem.u32(G.BattleEnable), Mem.i8(G.ExecFrames),
+            fc != 0 ? *(int*)fc : -1, fc != 0 && *(byte*)(fc + 0x338) != 0, fc != 0 ? *(float*)(fc + 8) : 0, _place);
     }
 
-    /// <summary>The place name the save screen shows (FFX-encoded text from the place dictionary).</summary>
+    /// <summary>The place name the save screen shows.</summary>
     private static string read_place() {
         try {
             ushort dic = Calls.AtelGetSaveDic.fnptr!();
@@ -117,9 +102,8 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
             if (p == 0 || !Mem.readable(p, 1)) return "";
             int len = 0;
             while (len < 64 && *(byte*)(p + len) != 0) len++;
-            ReadOnlySpan<byte> src = new((void*)p, len);
             Span<byte> dest = stackalloc byte[256];
-            int n = FhEncoding.decode(src, dest, flags: FhEncodingFlags.IMPLICIT_END);
+            int n = FhEncoding.decode(new ReadOnlySpan<byte>((void*)p, len), dest, flags: FhEncodingFlags.IMPLICIT_END);
             return Encoding.UTF8.GetString(dest[..Math.Clamp(n, 0, dest.Length)]).Trim();
         }
         catch (Exception) {
@@ -127,6 +111,7 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
         }
     }
 
+    // The game rebuilds its input map on some screens, unbound again.
     private static void bind_keys() {
         nint im = Mem.at(G.InputManager);
         int count = *(int*)(im + 0x9c);
@@ -135,7 +120,7 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
         foreach (var (pair, bit, key) in CAMERA_PAIRS) {
             if (pair >= count) continue;
             nint e = pairs + pair * 8;
-            if (*(uint*)(e + 4) == bit && *(uint*)e == 0) *(uint*)e = key; // rebuilt maps come back unbound
+            if (*(uint*)(e + 4) == bit && *(uint*)e == 0) *(uint*)e = key;
         }
     }
 
@@ -146,16 +131,16 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
 
     public void set_exec_frames(int n) => GameThread.post("game speed", () => Mem.set_u8(G.ExecFrames, (byte)Math.Clamp(n, 1, 8)));
 
-    /// <summary>Reads the developers' event list (builds it first if needed): every map id with its internal name.</summary>
+    /// <summary>Reads the developers' event list: every map id with its internal name.</summary>
     public void load_maps() => GameThread.post("map list", () => {
         flag.ensure_event_list();
         int count = Math.Clamp(Mem.i32(G.EventCount), 0, 1024);
         nint table = *(nint*)Mem.at(G.EventTable);
-        if (table == 0 || count == 0) { GameThread.last_status = "the event list could not be read"; return; }
+        if (table == 0 || count == 0) { GameThread.last_status = "the map list could not be read"; return; }
         MapEntry[] list = new MapEntry[count];
         for (int i = 0; i < count; i++) {
             nint e = table + i * 16;
-            // Names are at most 12 bytes; a 12-character name runs into the id at +0xc.
+            // A 12-character name runs into the id at +0xc.
             StringBuilder sb = new();
             for (int k = 0; k < 12; k++) {
                 byte b = *(byte*)(e + k);
@@ -163,29 +148,26 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
                 sb.Append((char)b);
             }
             int id = *(int*)(e + 0xc);
-            list[i] = new MapEntry(id, sb.ToString(), !NO_SCRIPT.Contains(id) && script_name_present(id));
+            list[i] = new MapEntry(id, sb.ToString(), has_script(id));
         }
         maps = [ .. list.OrderBy(m => m.Id) ];
     });
 
     public void jump(int map, int entrance) => GameThread.post("map jump", () => {
-        if (NO_SCRIPT.Contains(map) || !script_name_present(map)) {
-            GameThread.last_status = $"map {map} has no script in the PC version; jumping there would crash the game";
-            return;
-        }
-        if (!jump_allowed()) { GameThread.last_status = "the current event does not allow leaving the map now (the debug flag lifts that)"; return; }
+        if (!has_script(map)) { GameThread.last_status = $"map {map} has no script in the PC version"; return; }
+        if (!jump_allowed()) { GameThread.last_status = "the map can't be left right now"; return; }
         Calls.AtelSetEventJump2.fnptr!(map, entrance, 0);
         GameThread.last_status = $"jumping to map {map}, entrance {entrance}";
     });
 
-    /// <summary>The developers' model viewer: event 0 ("event00", the grid00 viewer). Turns the debug flag on first, so the viewer panels work and the map can be left again.</summary>
+    /// <summary>The flag goes on first: the viewer panels need it, and it lets the player leave the viewer map.</summary>
     public void go_to_model_viewer(TweakPanels panels) {
         if (!flag.on) flag.set(true, panels);
-        jump(0, 0);
+        jump(MODEL_VIEWER_MAP, 0);
     }
 
     public void load_viewer_save(int n) => GameThread.post("developer save", () => {
-        if (!jump_allowed()) { GameThread.last_status = "only where the player can leave the map (it warps)"; return; }
+        if (!jump_allowed()) { GameThread.last_status = "the map can't be left right now"; return; }
         Mem.set_u32(G.ViewerSaveLast, 0xffffffff); // the loader skips a repeat of the last one
         guards.viewer_save_once = true;
         Calls.TkDebugLoadViewerSave.fnptr!(n);
@@ -193,18 +175,13 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag) {
         GameThread.last_status = $"developer save {n} loaded";
     });
 
-    /// <summary>
-    ///     Presses the free camera's own toggle: one fresh press of its input bit,
-    ///     so FreeCamera_handleInput copies the scene camera, attaches the fly
-    ///     controller and captures the cursor, as the developers' key did.
-    /// </summary>
+    /// <summary>Presses the free camera's own toggle bit for one frame, so the game attaches the fly controller itself.</summary>
     public void toggle_fly() => GameThread.post("free camera", () => {
         nint fc = *(nint*)Mem.at(G.FreeCamera);
         if (fc == 0) { GameThread.last_status = "no free camera yet"; return; }
-        int ev = *Fahrenheit.FFX.Globals.event_id;
         if (Mem.u8(G.AsyncControllerOn) != 0 || Mem.i32(G.PauseRequest) != 0 || Mem.i32(G.PauseEntered) != 0
-         || ev is 0x17 or 0x15c or 0x15d) {
-            GameThread.last_status = "the free camera is not available here (title screen, pause or this map)";
+         || NO_FREE_CAMERA_MAPS.Contains(*Fahrenheit.FFX.Globals.event_id)) {
+            GameThread.last_status = "fly mode is not available here";
             return;
         }
         uint* im = (uint*)Mem.at(G.InputManager);

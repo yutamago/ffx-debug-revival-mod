@@ -5,59 +5,41 @@ using Yuta.DebugRevival.Native;
 namespace Yuta.DebugRevival.Features;
 
 /// <summary>
-///     Hooks that keep the revived developer tools from doing lasting harm.
-///     <list type="bullet">
-///         <item><c>StatsAndAchievements_ResetAll</c> (Basic debug panel, line 12)
-///               calls <c>SteamUserStats()->ResetAllStats(true)</c>, which wipes the
-///               player's Steam stats and every achievement. Nothing else in the game
-///               calls it; with this mod loaded it never runs.</item>
-///         <item><c>TkDebugLoadViewerSave</c> (Basic debug panel, line 9 + Enter)
-///               copies a developer save over the running game and warps. It only
-///               runs when the player allowed it in the Field tab.</item>
-///     </list>
+///     Keeps the Basic debug panel from doing lasting harm: "Achievements Reset" would wipe the player's Steam
+///     stats and achievements and never runs, and "Game Section" loads a developer save only when allowed.
 /// </summary>
 public sealed class Guards(FhLogger log) {
-    /// <summary>Lets the Basic debug panel's "Game Section" load developer saves.</summary>
     public volatile bool allow_viewer_saves;
 
     /// <summary>Set for one call by the mod's own "load developer save" button.</summary>
     internal bool viewer_save_once;
 
-    public int blocked_steam_resets;
-    public int blocked_viewer_saves;
-
-    /// <summary>
-    ///     Whether both guard hooks are really in place. <c>hook()</c> in init only
-    ///     queues a hook; Fahrenheit installs them after every init, so this checks
-    ///     the detour's jump at both functions. Game thread.
-    /// </summary>
+    /// <summary>Whether both detours are in place. Fahrenheit installs hooks after every module's init, so this is checked on the first frame.</summary>
     public bool verified { get; private set; }
+    private bool _checked;
 
-    public bool verify() {
-        if (verified) return true;
-        verified = Mem.u8(0x006f1420) == 0xe9 && Mem.u8(0x008b55e0) == 0xe9;
+    public bool init(FhModule owner) =>
+        Calls.StatsAndAchievements_ResetAll.hook(owner, h_reset_all) && Calls.TkDebugLoadViewerSave.hook(owner, h_viewer_save);
+
+    public void verify() {
+        if (_checked) return;
+        _checked = true;
+        verified = detoured(Calls.RESET_ALL_VA) && detoured(Calls.VIEWER_SAVE_VA);
         if (!verified) log.Error("The safety hooks are not installed; the developer panels stay locked.");
-        return verified;
     }
 
-    public bool init(FhModule owner) {
-        return Calls.StatsAndAchievements_ResetAll.hook(owner, h_reset_all)
-            && Calls.TkDebugLoadViewerSave.hook(owner, h_viewer_save);
-    }
+    private static bool detoured(uint va) => Mem.u8(va) == 0xe9;
 
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private void h_reset_all() {
-        // Deliberately not chained.
-        Interlocked.Increment(ref blocked_steam_resets);
-        log.Warning("Blocked StatsAndAchievements_ResetAll: the Basic debug panel's 'Achievements Reset' would wipe the Steam stats and achievements.");
+        log.Warning("Blocked StatsAndAchievements_ResetAll (Basic debug panel, 'Achievements Reset').");
         GameThread.last_status = "blocked: 'Achievements Reset' would wipe your Steam achievements";
     }
 
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private void h_viewer_save(int n) {
         if (!allow_viewer_saves && !viewer_save_once) {
-            Interlocked.Increment(ref blocked_viewer_saves);
-            GameThread.last_status = $"blocked developer save {n}: allow it in the Field tab first";
+            GameThread.last_status = $"blocked developer save {n}";
             return;
         }
         viewer_save_once = false;

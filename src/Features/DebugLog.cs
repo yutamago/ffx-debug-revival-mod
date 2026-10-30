@@ -5,11 +5,8 @@ using Yuta.DebugRevival.Native;
 namespace Yuta.DebugRevival.Features;
 
 /// <summary>
-///     The developers' console. <c>dbgPrintf</c> (459 call sites) and
-///     <c>scePrintf</c> are compiled to a bare <c>ret</c> in FFX.exe; their
-///     arguments are still pushed, so a hook can format and keep the text.
-///     Fahrenheit's print control hooks the same functions; if its hook runs
-///     first without passing the call on, this log stays empty (see the Log tab).
+///     The developers' console: <c>dbgPrintf</c> and <c>scePrintf</c> are a bare <c>ret</c> in FFX.exe, but their
+///     459 callers still push the arguments. Stays empty if Fahrenheit's print control hooks them first without chaining.
 /// </summary>
 public sealed unsafe class DebugLog {
     private const int MAX_LINES = 4000;
@@ -24,10 +21,7 @@ public sealed unsafe class DebugLog {
     [DllImport("msvcrt.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern int _vsnprintf(byte* buffer, nuint count, byte* format, nint* args);
 
-    public bool init(FhModule owner) {
-        return Calls.dbgPrintf.hook(owner, h_dbg_printf)
-            && Calls.scePrintf.hook(owner, h_sce_printf);
-    }
+    public bool init(FhModule owner) => Calls.dbgPrintf.hook(owner, h_dbg_printf) && Calls.scePrintf.hook(owner, h_sce_printf);
 
     private D.PrintfFn? _next_dbg;
     private D.PrintfFn? _next_sce;
@@ -50,21 +44,16 @@ public sealed unsafe class DebugLog {
         _next_sce(fmt, va0, va1, va2, va3, va4, va5, va6, va7, va8, va9, va10, va11, va12, va13, va14, va15);
     }
 
-    /// <summary>
-    ///     Formats one call. These prints never ran in the PC build, so their
-    ///     arguments were never checked against their formats: a <c>%s</c> may get a
-    ///     bad pointer. The format is walked here; strings are read only from
-    ///     readable memory, <c>%n</c> is skipped, and each numeric conversion is
-    ///     handed to the C runtime alone (on x86 a va_list is a pointer to the
-    ///     stacked argument slots, which the 16 slots reproduce).
-    /// </summary>
+    // These prints never ran in the PC build, so a %s may get a bad pointer. Strings are read only from readable
+    // memory, %n is skipped, and each numeric conversion goes to the C runtime alone (an x86 va_list is a pointer
+    // to the stacked slots, which the 16 slots reproduce).
     private void record(byte* fmt, ReadOnlySpan<nint> args) {
         if (!capture || fmt == null || !Mem.readable((nint)fmt, 1)) return;
         try {
             add(format(fmt, args));
         }
         catch (Exception) {
-            // A malformed line is dropped rather than taking the game down.
+            // A malformed line is dropped; the game must not go down over a debug print.
         }
     }
 
@@ -126,7 +115,7 @@ public sealed unsafe class DebugLog {
         return sb.ToString();
     }
 
-    /// <summary>A NUL-terminated string read only from committed, readable pages.</summary>
+    /// <summary>A NUL-terminated string that stops at the first unreadable page.</summary>
     private static string safe_cstr(nint p, int max) {
         if (!Mem.readable(p, 1)) return "(bad pointer)";
         StringBuilder sb = new();
