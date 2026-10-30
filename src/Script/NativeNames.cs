@@ -5,7 +5,7 @@ using System.Globalization;
 
 namespace Yuta.DebugRevival.Script;
 
-/// <summary>Native function names for <c>func</c> annotations, from natives.tsv (tools/gen-natives.py).</summary>
+/// <summary>Native function names for <c>func</c> annotations, from natives.tsv (tools/gen-natives.cs).</summary>
 public sealed class NativeNames {
     private readonly Dictionary<ushort, (uint handler, string name)> _by_id = [];
 

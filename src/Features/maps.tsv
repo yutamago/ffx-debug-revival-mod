@@ -1,4 +1,4 @@
-# map_id	entrances	crash_reason  (gen-map-table.py; entrances -1: no table, the player lands on the default record; empty reason: no known crash)
+# map_id	entrances	crash_reason  (gen-map-table.cs; entrances -1: no table, the player lands on the default record; empty reason: no known crash)
 0	1	
 1	1	
 2	1	

@@ -28,7 +28,7 @@ jobs:
       run: dotnet build -c Release -p:Version="${GITHUB_REF_NAME#v}" ffx-debug-revival.slnx
 
     - name: Package
-      run: tools/package.sh "yuta.debugrevival-${GITHUB_REF_NAME}.zip"
+      run: dotnet run tools/package.cs -- "yuta.debugrevival-${GITHUB_REF_NAME}.zip"
 
     - name: Publish
       env:

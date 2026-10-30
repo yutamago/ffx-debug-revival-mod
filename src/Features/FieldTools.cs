@@ -107,7 +107,7 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag, Dictionary<
         return true;
     }
 
-    /// <summary>Entrance counts per map, from maps.tsv (tools/gen-map-table.py).</summary>
+    /// <summary>Entrance counts per map, from maps.tsv (tools/gen-map-table.cs).</summary>
     public static Dictionary<int, int> parse_entrances(string tsv) {
         Dictionary<int, int> counts = [];
         foreach (string line in tsv.Split('\n')) {

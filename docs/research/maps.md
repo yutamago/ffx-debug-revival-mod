@@ -112,14 +112,14 @@ many maps have no voice data).
 
 ## Generator
 
-`tools/gen-map-table.py` (python3 stdlib, uses the ffx CLI). It reads cdrom.fid/.fnd and eventid.bin
+`tools/gen-map-table.cs` (a .NET 10 C# script; uses the ffx CLI). It reads cdrom.fid/.fnd and eventid.bin
 from the archive, the three constants from FFX.exe, and each .ebp. It writes
 `map_id<TAB>entrances<TAB>crash_reason` for every event-list id and every id with an event slot
 (402).
 
 ```bash
 FFX_GAME_DIR=<game dir> FFX_CLI=<ffx-decomp's ffx binary> \
-  python3 -I tools/gen-map-table.py > src/Features/maps.tsv        # ~12 s
+  dotnet run tools/gen-map-table.cs > src/Features/maps.tsv        # ~13 s
 # --detail adds the map index per language (numbers only; for checking, not shipping)
 ```
 
