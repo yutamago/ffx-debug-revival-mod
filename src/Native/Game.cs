@@ -47,6 +47,7 @@ public static class D {
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisUIntUIntFn(nint self, uint a, uint b);
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisIntFn(nint self, int a);
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisPtrFn(nint self, nint a);
+    [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate int  ThisIntPtrToIntFn(nint self, int a, nint b);
 }
 
 /// <summary>Call handles. They are ref structs, so each property makes a fresh one.</summary>
@@ -59,9 +60,15 @@ public static class Calls {
     /// <summary>cdecl (worker, mode, callbacks): runs one worker; mode 1 = one instruction.</summary>
     public static FhCallHandle<D.ScriptRunFn> Script_Run => h<D.ScriptRunFn>(0x008641e0);
 
-    // ---- debug prints (bare `ret` in FFX.exe) ----
-    public static FhCallHandle<D.PrintfFn> dbgPrintf => h<D.PrintfFn>(0x0062f500);
-    public static FhCallHandle<D.PrintfFn> scePrintf => h<D.PrintfFn>(0x0062fbf0);
+    // ---- debug prints ----
+    /// <summary>The developers' printf-style functions, each a bare <c>ret</c> in FFX.exe: name and VA.</summary>
+    public static readonly (string name, uint va)[] DEBUG_PRINTS = [
+        ("dbgPrintf", 0x0062f500), ("scePrintf", 0x0062fbf0), ("AtelPs2DebugString", 0x00873c70),
+        ("AtelPs2DebugString2", 0x00873c80), ("rcPrint", 0x00927550),
+    ];
+    public static FhCallHandle<D.PrintfFn> printf_fn(uint va) => h<D.PrintfFn>(va);
+    /// <summary>thiscall (this unused, level, message) ret 8: the engine's log output, which every PhyrePrintf reaches.</summary>
+    public static FhCallHandle<D.ThisIntPtrToIntFn> Phyre_PTTYCallback_print => h<D.ThisIntPtrToIntFn>(0x004354f0);
 
     // ---- the PC port's tweak panels ----
     /// <summary>thiscall (DebugMenuManager*, mode 0..10): shows one panel, 10 hides all.</summary>
@@ -171,8 +178,6 @@ public static class G {
     public const uint DebugMenuManager = 0x00cccab0; // ptr; +4 current mode (10 = none)
 
     // battle
-    public const uint BtlStatus   = 0x0112a8e0; // i8, 0 = no battle
-    public const uint BtlExe      = 0x0112a8e2; // u8, 2 = label battle requested
     public const uint BtlChrTop   = 0x011334d4; // ptr to 0x1f actors of 0xf90
     public const int  ActorSize   = 0xf90;
     public const uint PickerField     = 0x00c44248; // i32

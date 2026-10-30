@@ -5,8 +5,9 @@ using Yuta.DebugRevival.Native;
 namespace Yuta.DebugRevival.Features;
 
 /// <summary>
-///     The developers' console: <c>dbgPrintf</c> and <c>scePrintf</c> are a bare <c>ret</c> in FFX.exe, but their
-///     459 callers still push the arguments. Stays empty if Fahrenheit's print control hooks them first without chaining.
+///     The developers' console. Their printf-style functions are a bare <c>ret</c> in FFX.exe, but the callers still
+///     push the arguments; the engine's own log is caught where it is written out. Mods load after Fahrenheit's
+///     runtime, so these hooks run before its print control and see every line.
 /// </summary>
 public sealed unsafe class DebugLog {
     private const int MAX_LINES = 4000;
@@ -14,40 +15,63 @@ public sealed unsafe class DebugLog {
     private readonly Queue<string> _lines = new();
     private readonly Lock _lock = new();
     private string _partial = "";
+    private readonly List<PrintHook> _print_hooks = [];
+    private D.ThisIntPtrToIntFn? _next_tty;
+
+    // Fahrenheit's print control forwards the debug prints to the engine log; those lines are already recorded.
+    [ThreadStatic] private static int _in_debug_print;
 
     public volatile bool capture = true;
+    public volatile bool capture_engine = true;
     public long total;
 
     [DllImport("msvcrt.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern int _vsnprintf(byte* buffer, nuint count, byte* format, nint* args);
 
-    public bool init(FhModule owner) => Calls.dbgPrintf.hook(owner, h_dbg_printf) && Calls.scePrintf.hook(owner, h_sce_printf);
-
-    private D.PrintfFn? _next_dbg;
-    private D.PrintfFn? _next_sce;
-
-    [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
-    private void h_dbg_printf(byte* fmt,
-        nint va0,  nint va1,  nint va2,  nint va3,  nint va4,  nint va5,  nint va6,  nint va7,
-        nint va8,  nint va9,  nint va10, nint va11, nint va12, nint va13, nint va14, nint va15) {
-        record(fmt, [ va0, va1, va2, va3, va4, va5, va6, va7, va8, va9, va10, va11, va12, va13, va14, va15 ]);
-        _next_dbg ??= Calls.dbgPrintf.chain_from(h_dbg_printf).fnptr!;
-        _next_dbg(fmt, va0, va1, va2, va3, va4, va5, va6, va7, va8, va9, va10, va11, va12, va13, va14, va15);
+    public bool init(FhModule owner) {
+        bool ok = Calls.Phyre_PTTYCallback_print.hook(owner, h_tty_print);
+        foreach (var (_, va) in Calls.DEBUG_PRINTS) {
+            PrintHook p = new(this, va);
+            _print_hooks.Add(p);
+            ok &= Calls.printf_fn(va).hook(owner, p.h_print);
+        }
+        return ok;
     }
 
-    [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
-    private void h_sce_printf(byte* fmt,
-        nint va0,  nint va1,  nint va2,  nint va3,  nint va4,  nint va5,  nint va6,  nint va7,
-        nint va8,  nint va9,  nint va10, nint va11, nint va12, nint va13, nint va14, nint va15) {
-        record(fmt, [ va0, va1, va2, va3, va4, va5, va6, va7, va8, va9, va10, va11, va12, va13, va14, va15 ]);
-        _next_sce ??= Calls.scePrintf.chain_from(h_sce_printf).fnptr!;
-        _next_sce(fmt, va0, va1, va2, va3, va4, va5, va6, va7, va8, va9, va10, va11, va12, va13, va14, va15);
+    private sealed class PrintHook(DebugLog log, uint va) {
+        private D.PrintfFn? _next;
+
+        [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
+        public void h_print(byte* fmt,
+            nint va0,  nint va1,  nint va2,  nint va3,  nint va4,  nint va5,  nint va6,  nint va7,
+            nint va8,  nint va9,  nint va10, nint va11, nint va12, nint va13, nint va14, nint va15) {
+            log.record(fmt, [ va0, va1, va2, va3, va4, va5, va6, va7, va8, va9, va10, va11, va12, va13, va14, va15 ]);
+            _next ??= Calls.printf_fn(va).chain_from(h_print).fnptr!;
+            _in_debug_print++;
+            try { _next(fmt, va0, va1, va2, va3, va4, va5, va6, va7, va8, va9, va10, va11, va12, va13, va14, va15); }
+            finally { _in_debug_print--; }
+        }
+    }
+
+    [UnmanagedCallConv(CallConvs = [ typeof(CallConvThiscall) ])]
+    private int h_tty_print(nint self, int level, nint message) {
+        if (capture && capture_engine && _in_debug_print == 0 && message != 0) {
+            try {
+                string text = safe_cstr(message, 2048).TrimEnd('\r', '\n');
+                add_lines(level switch { 1 => "warning: ", 3 => "error: ", 4 => "fatal: ", _ => "" } + text);
+            }
+            catch (Exception) {
+                // A malformed line is dropped; the game must not go down over a log line.
+            }
+        }
+        _next_tty ??= Calls.Phyre_PTTYCallback_print.chain_from(h_tty_print).fnptr!;
+        return _next_tty(self, level, message);
     }
 
     // These prints never ran in the PC build, so a %s may get a bad pointer. Strings are read only from readable
     // memory, %n is skipped, and each numeric conversion goes to the C runtime alone (an x86 va_list is a pointer
     // to the stacked slots, which the 16 slots reproduce).
-    private void record(byte* fmt, ReadOnlySpan<nint> args) {
+    internal void record(byte* fmt, ReadOnlySpan<nint> args) {
         if (!capture || fmt == null || !Mem.readable((nint)fmt, 1)) return;
         try {
             add(format(fmt, args));
@@ -136,6 +160,13 @@ public sealed unsafe class DebugLog {
             for (int i = 0; i < parts.Length - 1; i++) push(parts[i].TrimEnd('\r'));
             _partial = parts[^1];
             if (_partial.Length > 512) { push(_partial); _partial = ""; }
+        }
+    }
+
+    /// <summary>A whole message: every line is pushed, none waits for more text.</summary>
+    private void add_lines(string text) {
+        lock (_lock) {
+            foreach (string line in text.Split('\n')) push(line.TrimEnd('\r'));
         }
     }
 

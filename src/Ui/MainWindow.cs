@@ -392,6 +392,9 @@ public sealed class MainWindow(
         bool capture = log.capture;
         if (ImGui.Checkbox("Capture", ref capture)) log.capture = capture;
         ImGui.SameLine();
+        bool engine = log.capture_engine;
+        if (ImGui.Checkbox("Engine messages", ref engine)) log.capture_engine = engine;
+        ImGui.SameLine();
         ImGui.Checkbox("Auto-scroll", ref _log_autoscroll);
         ImGui.SameLine();
         if (ImGui.Button("Clear")) log.clear();
@@ -400,7 +403,7 @@ public sealed class MainWindow(
         ImGui.InputTextWithHint("##logfilter", "filter", ref _log_filter, 128);
         ImGui.SameLine();
         Txt.D($"{log.total} lines");
-        Txt.Help("Messages the game's code still writes to the developers' console. The released game never shows them.");
+        Txt.Help("Messages the game's code still writes to the developers' console, and the game engine's own log. The released game never shows them.");
         if (ImGui.BeginChild("log", Vector2.Zero, ImGuiChildFlags.Borders, ImGuiWindowFlags.HorizontalScrollbar)) {
             foreach (string line in log.lines()) {
                 if (_log_filter.Length > 0 && !line.Contains(_log_filter, StringComparison.OrdinalIgnoreCase)) continue;
