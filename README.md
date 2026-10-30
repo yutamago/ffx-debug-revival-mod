@@ -8,9 +8,12 @@ It needs Fahrenheit `1.0.0-alpha12` and the current Steam build of the game.
 
 ## Install
 
-Copy the `yuta.debugrevival` folder into Fahrenheit's `mods/` folder and add
-`yuta.debugrevival` to `mods/loadorder`. Back up your saves first: the cheats
-and two of the panels change what your next save writes.
+Download the zip from the [releases](https://github.com/yutamago/ffx-debug-revival-mod/releases)
+and unpack it into your Fahrenheit folder, so the mod ends up in
+`mods/yuta.debugrevival/`. Then add a line `yuta.debugrevival` to
+`mods/loadorder`. Back up your saves first (`Documents\Square Enix\FINAL
+FANTASY X&X-2 HD Remaster`): the cheats and two of the panels change what your
+next save writes.
 
 ## What's in the window
 
@@ -42,9 +45,12 @@ the sound. With the F10/F11 box ticked, those keys toggle the two.
 
 ### Map jump
 
-The list holds the developers' internal map names. Greyed-out maps have no
-script in the PC version, and jumping there would crash the game. Jumping out
-of story order can break progression. **Model viewer** turns the debug flag on
+The list holds the developers' internal map names. Maps in red would crash or
+freeze the game, because the PC version lacks their script, so the mod refuses
+them. Map 399 sends the game back to the title screen; the mod asks first. The
+entrance slider shows how many entrances the map has. Jumping out of story
+order can break progression, and some maps may still get stuck if the story
+isn't where their script expects. **Model viewer** turns the debug flag on
 and goes to grid00, the developers' model viewer map.
 
 ### Developer saves
@@ -78,6 +84,10 @@ save.
 ```bash
 dotnet build -c Release ffx-debug-revival.slnx   # artifacts/deploy/rel/mods/yuta.debugrevival/
 ```
+
+`tools/package.sh <out.zip>` zips the build the way a release ships it. Pushing
+a tag such as `v0.2.0` makes GitHub build and publish a release; a tag with a
+`-` (`v0.2.0-alpha`) makes a prerelease.
 
 `tools/disasm-check.sh` checks the disassembler against ffx-decomp's
 `ffx script disasm` on every shipped script. `tools/gen-natives.py`

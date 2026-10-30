@@ -46,9 +46,10 @@ public sealed unsafe class TweakPanels(Guards guards, DebugFlag flag) {
     }
 
     public void show(int mode) => GameThread.post($"show panel {mode}", () => {
-        if (mode != NONE && !guards.verified) { GameThread.last_status = "locked: the safety hooks are not installed"; return; }
-        if (!set_mode(mode)) { GameThread.last_status = "the panels don't exist yet"; return; }
-        GameThread.last_status = mode == NONE ? "panels hidden" : PANELS[mode].Name;
+        if (mode != NONE && !guards.verified) { Status.failed("locked: the safety hooks are not installed"); return; }
+        if (mode != NONE && !usable(PANELS[mode])) { Status.refused($"{PANELS[mode].Name} needs the debug flag"); return; }
+        if (!set_mode(mode)) { Status.refused("the panels don't exist yet"); return; }
+        Status.done(mode == NONE ? "panels hidden" : PANELS[mode].Name);
     });
 
     /// <summary>Game thread. The texture-animation panel only works with the debug flag.</summary>

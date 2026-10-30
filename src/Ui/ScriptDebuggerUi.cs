@@ -36,9 +36,7 @@ public sealed class ScriptDebuggerUi(ScriptDebugger dbg) {
         ImGui.SameLine();
         if (ImGui.Button("One frame")) dbg.frame_step(sel);
         ImGui.SameLine();
-        ImGui.BeginDisabled(dbg.selected_worker < 0 || sel != 0);
         if (ImGui.Button("Step worker")) dbg.step(sel, dbg.selected_worker);
-        ImGui.EndDisabled();
         ImGui.SameLine();
         if (ImGui.Button("Clear breakpoints")) dbg.clear_all_breakpoints();
 
@@ -52,7 +50,6 @@ public sealed class ScriptDebuggerUi(ScriptDebugger dbg) {
             }
         }
         if (sel != 0) Txt.D("Breakpoints and single steps work in the event's scripts (ctrl work 0) only.");
-        if (dbg.status.Length > 0) Txt.C(YELLOW, dbg.status);
 
         Vector2 avail = ImGui.GetContentRegionAvail();
         if (ImGui.BeginChild("workers", new Vector2(330, avail.Y), ImGuiChildFlags.Borders)) {
@@ -120,6 +117,10 @@ public sealed class ScriptDebuggerUi(ScriptDebugger dbg) {
     private void draw_code(CtrlSnap cs, WorkerSnap w) {
         Listing? l = dbg.listing;
         ImGui.Checkbox("Follow PC", ref _follow_pc);
+        ImGui.SameLine();
+        bool original = dbg.original_names;
+        if (ImGui.Checkbox("Original names", ref original)) dbg.original_names = original;
+        Txt.Help("Shows the instruction names from the game's own table, such as PUSHV or REQSW, instead of the default ones.");
         if (cs.Index == 0) { ImGui.SameLine(); Txt.D("click a line to set or clear a breakpoint (4 at most)"); }
         if (l is null) return;
         if (l.Error.Length > 0) { Txt.C(RED, l.Error); return; }

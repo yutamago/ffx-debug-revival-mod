@@ -137,22 +137,22 @@ public sealed unsafe class BattleDebug {
 
     public void run_cheat(Cheat c) => GameThread.post(c.Label, () => {
         sbyte status = Mem.i8(G.BtlStatus);
-        if (c.BattleOnly && status == 0) { GameThread.last_status = $"{c.Label}: only in battle"; return; }
-        if (c.ReadsDisc && status is not (0 or 1)) { GameThread.last_status = $"{c.Label}: wait until the battle is running"; return; }
+        if (c.BattleOnly && status == 0) { Status.refused($"{c.Label}: only in battle"); return; }
+        if (c.ReadsDisc && status is not (0 or 1)) { Status.refused($"{c.Label}: wait until the battle is running"); return; }
         Calls.void_fn(c.Va).fnptr!();
-        GameThread.last_status = $"done: {c.Label}";
+        Status.done($"done: {c.Label}");
     });
 
     public void weak(bool monsters, bool on) => GameThread.post(monsters ? "monsters HP" : "party HP", () => {
-        if (Mem.i8(G.BtlStatus) == 0) { GameThread.last_status = "only in battle"; return; }
+        if (Mem.i8(G.BtlStatus) == 0) { Status.refused("only in battle"); return; }
         Calls.int_fn(monsters ? MS_DEBUG_WEAK_MONSTERS : MS_DEBUG_WEAK_PARTY).fnptr!(on ? 1 : 0);
-        GameThread.last_status = (monsters ? "monsters" : "party") + (on ? " at 1 HP" : " at full HP");
+        Status.done((monsters ? "monsters" : "party") + (on ? " at 1 HP" : " at full HP"));
     });
 
     /// <summary>Writes an actor field (i32 or u8) if the battle is still the same.</summary>
     public void set_actor(int index, int offset, int value, bool is_byte) => GameThread.post("edit actor", () => {
         nint top = *(nint*)Mem.at(G.BtlChrTop);
-        if (top == 0 || Mem.i8(G.BtlStatus) == 0) { GameThread.last_status = "the battle is over"; return; }
+        if (top == 0 || Mem.i8(G.BtlStatus) == 0) { Status.refused("the battle is over"); return; }
         nint a = top + index * G.ActorSize + offset;
         if (is_byte) *(byte*)a = (byte)Math.Clamp(value, 0, 255);
         else *(int*)a = value;
@@ -175,12 +175,13 @@ public sealed unsafe class BattleDebug {
 
     /// <summary>Starts the picked battle the way the developers' L1+R1+L2+R2+X combo did.</summary>
     public void start_picked() => GameThread.post("start battle", () => {
-        if (_picker_label == 0) { GameThread.last_status = "look up a battle first"; return; }
-        if (Mem.i8(G.BtlStatus) != 0) { GameThread.last_status = "already in a battle"; return; }
-        if (!FieldTools.jump_allowed()) { GameThread.last_status = "only while you control the player in the field"; return; }
+        if (_picker_label == 0) { Status.refused("look up a battle first"); return; }
+        if (Mem.i8(G.BtlStatus) != 0) { Status.refused("already in a battle"); return; }
+        if (!FieldTools.jump_allowed()) { Status.refused("only while you control the player in the field"); return; }
         Calls.void_fn(TO_ALL_CLEAR_MESSAGE_WINDOW).fnptr!();
         Calls.MsBattleLabelExe.fnptr!(_picker_label, 0, 0);
-        GameThread.last_status = Mem.u8(G.BtlExe) == 2 ? "battle requested" : "the game refused the battle";
+        if (Mem.u8(G.BtlExe) == 2) Status.done("battle requested");
+        else Status.refused("the game refused the battle");
     });
 
     private D.VoidFn? _next_todaps_draw;
