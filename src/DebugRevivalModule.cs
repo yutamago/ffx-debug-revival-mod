@@ -47,7 +47,7 @@ public sealed class DebugRevivalModule : FhModule {
         // Any other part that fails to hook is left out; the rest still works.
         warn_unless(_scripts.init(this), "script debugger");
         warn_unless(_battle.init(this),  "battle status line");
-        warn_unless(_field.init(this),   "noclip");
+        warn_unless(_field.init(this),   "noclip and developer saves");
         warn_unless(_log.init(this),     "debug log");
         warn_unless(_gu.init(this),      "PS2 debug menu");
         _flag.hooks_ok = _flag.init(this);

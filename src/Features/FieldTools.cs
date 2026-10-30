@@ -41,7 +41,23 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag, Dictionary<
 
     private D.RetIntFn? _next_ignore_id;
 
-    public bool init(FhModule owner) => Calls.Sg_GetIgnoreID.hook(owner, h_ignore_id);
+    public bool init(FhModule owner) =>
+        Calls.Sg_GetIgnoreID.hook(owner, h_ignore_id) && Calls.debugLoadForViewer.hook(owner, h_load_for_viewer);
+
+    // The developers' loader opens the save from disk with fopen, but the PC version ships the saves inside
+    // FFX_Data.vbf, so it always failed. This reads them the way sceOpen reads the game's files.
+    [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
+    private int h_load_for_viewer(int n, nint dst, uint size) {
+        byte[] path = Encoding.ASCII.GetBytes($"/FFX_Data/GameData/PS3Data/savesforviewer/{n}\0");
+        byte* name = stackalloc byte[0x100];
+        fixed (byte* p = path) Calls.fiosUnifyFilename.fnptr!((nint)p, (nint)name, 0x100);
+        if ((Calls.fiosIsFileExist.fnptr!((nint)name) & 0xff) == 0) return 1;
+        nint file = Calls.fiosOpen.fnptr!((nint)name, 1);
+        if (file == 0) return 1;
+        Calls.fiosRead.fnptr!(file, dst, size);
+        Calls.fiosClose.fnptr!(file);
+        return 0;
+    }
 
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private int h_ignore_id() {
@@ -213,7 +229,8 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag, Dictionary<
         guards.viewer_save_once = true;
         Calls.TkDebugLoadViewerSave.fnptr!(n);
         guards.viewer_save_once = false;
-        Status.done($"developer save {n} loaded");
+        if (Mem.u32(G.ViewerSaveLast) == (uint)n) Status.done($"developer save {n} loaded");
+        else Status.failed($"developer save {n} could not be read");
     });
 
     /// <summary>Presses the free camera's own toggle bit for one frame, so the game attaches the fly controller itself.</summary>
