@@ -2,17 +2,12 @@
 
 namespace Yuta.DebugRevival.Native;
 
-/// <summary>
-///     Delegates for the game functions the mod calls or hooks. Every signature
-///     was checked in FFX.exe (ret N, stack and ECX use); the facts sheets in
-///     docs/research/ gives the evidence.
-/// </summary>
+/// <summary>Delegates for the game functions the mod calls or hooks; docs/research/ has the evidence for each signature.</summary>
 public static class D {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void VoidFn();
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void IntFn(int a);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  RetIntFn();
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint RetPtrFn();
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint IntToPtrFn(int a);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint IntPtrToPtrFn(int a, nint b);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void Int3Fn(int a, int b, int c);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint ExecCtrlWorksFn(int from, int to);
@@ -69,10 +64,12 @@ public static class Calls {
     public static FhCallHandle<D.RetPtrFn> PApplication_GetApplication => h<D.RetPtrFn>(0x00623b90);
     /// <summary>thiscall (panel, PApplication*): one panel's input handler (no caller in release).</summary>
     public static FhCallHandle<D.ThisPtrFn> panel_handle_input(uint va) => h<D.ThisPtrFn>(va);
+    public const uint RESET_ALL_VA = 0x006f1420;
+    public const uint VIEWER_SAVE_VA = 0x008b55e0;
     /// <summary>cdecl (): SteamUserStats()->ResetAllStats(true). Guarded: never runs.</summary>
-    public static FhCallHandle<D.VoidFn> StatsAndAchievements_ResetAll => h<D.VoidFn>(0x006f1420);
+    public static FhCallHandle<D.VoidFn> StatsAndAchievements_ResetAll => h<D.VoidFn>(RESET_ALL_VA);
     /// <summary>cdecl (n): loads developer save n from savesforviewer/ over the game and warps.</summary>
-    public static FhCallHandle<D.IntFn> TkDebugLoadViewerSave => h<D.IntFn>(0x008b55e0);
+    public static FhCallHandle<D.IntFn> TkDebugLoadViewerSave => h<D.IntFn>(VIEWER_SAVE_VA);
 
     // ---- battle ----
     public static FhCallHandle<D.VoidFn> void_fn(uint va) => h<D.VoidFn>(va);
@@ -111,10 +108,10 @@ public static class Calls {
     public static FhCallHandle<D.VoidFn> Sg_DbInitAll  => h<D.VoidFn>(0x00841440);
     public static FhCallHandle<D.VoidFn> initEventList => h<D.VoidFn>(0x00907f50);
 
-    // ---- the field map's part selection (debug flag: "unlimited" overruns its buffers) ----
-    /// <summary>cdecl (a1..a7, unlimited-if-debug) -> chains: yiRectToOMDBuild(&amp;g_YiRender, a1..a7, debug ? a8 : 0).</summary>
+    // ---- the field map's part selection ----
+    /// <summary>cdecl (a1..a7, unlimited-if-debug) -> yiRectToOMDBuild(&amp;g_YiRender, a1..a7, debug ? a8 : 0).</summary>
     public static FhCallHandle<D.Rect8Fn> yiRectToOMD => h<D.Rect8Fn>(0x00909d30);
-    /// <summary>cdecl (a1..a7) -> chains: yiRectToOMDBuild(&amp;g_YiRender, a1..a7, debug ? 1 : 0).</summary>
+    /// <summary>cdecl (a1..a7) -> yiRectToOMDBuild(&amp;g_YiRender, a1..a7, debug ? 1 : 0).</summary>
     public static FhCallHandle<D.Rect7Fn> yiRectToOMD_old => h<D.Rect7Fn>(0x00909dd0);
     public static FhCallHandle<D.RectBuildFn> yiRectToOMDBuild => h<D.RectBuildFn>(0x00912270);
     public const uint g_YiRender = 0x01876e00;
@@ -135,14 +132,10 @@ public static class Calls {
     public static FhCallHandle<D.UShortUIntToPtrFn> AtelGetSaveDicName => h<D.UShortUIntToPtrFn>(0x0086c430);
     /// <summary>cdecl (map, entrance, fade): warps when the event allows leaving the map.</summary>
     public static FhCallHandle<D.Int3Fn> AtelSetEventJump2 => h<D.Int3Fn>(0x0086ff40);
-    /// <summary>cdecl (event) -> name; reads the event index file, so call it sparingly.</summary>
-    public static FhCallHandle<D.IntToPtrFn> AtelGetEventName => h<D.IntToPtrFn>(0x00879760);
     /// <summary>cdecl (on): random encounters on/off (g_BattleEnable).</summary>
     public static FhCallHandle<D.IntFn> setBattleEnable => h<D.IntFn>(0x00782f70);
     /// <summary>cdecl () -> the field's "ignore collision" flag; hooked for noclip.</summary>
     public static FhCallHandle<D.RetIntFn> Sg_GetIgnoreID => h<D.RetIntFn>(0x0082d830);
-    /// <summary>thiscall (FreeCamera*, type): 0 off, 1 fly.</summary>
-    public static FhCallHandle<D.ThisIntFn> FreeCamera_setType => h<D.ThisIntFn>(0x00680410);
     /// <summary>thiscall (FreeCamera*): toggles the photo-mode pause.</summary>
     public static FhCallHandle<D.ThisFn> FreeCamera_setFreePause => h<D.ThisFn>(0x00680320);
 }
@@ -164,11 +157,8 @@ public static class G {
     public const uint BtlExe      = 0x0112a8e2; // u8, 2 = label battle requested
     public const uint BtlChrTop   = 0x011334d4; // ptr to 0x1f actors of 0xf90
     public const int  ActorSize   = 0xf90;
-    public const uint PlayerNeverDie = 0x0113338c; // u32
     public const uint PickerField     = 0x00c44248; // i32
     public const uint PickerEncounter = 0x01139e44; // i32
-    public const uint PickerGroup     = 0x01139e48; // i32 (derived)
-    public const uint PickerSlot      = 0x01139e4c; // i32 (derived)
 
     // field
     public const uint BattleEnable  = 0x00c421cc; // u32

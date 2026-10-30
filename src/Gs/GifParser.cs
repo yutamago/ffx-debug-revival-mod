@@ -22,13 +22,9 @@ public sealed record GsPrim(
     int ScissorX0, int ScissorY0, int ScissorX1, int ScissorY1);
 
 /// <summary>
-///     Parses the GIF stream of a PS2 debug-GUI packet: a DMA "end" tag
-///     whose low 16 bits are the quadword count, then GIF tags with their
-///     data (PACKED, REGLIST or IMAGE). Only what FFX's debug drawers use is
-///     interpreted: PRIM, RGBAQ, UV, XYZF2/XYZ2 (and the no-kick XYZF3/XYZ3),
-///     TEX0, SCISSOR and ALPHA. EOP does not end the stream (FFX's text tags
-///     set it mid-packet); the quadword count does. Facts:
-///     docs/research/gs.md.
+///     Parses the GIF stream of a PS2 debug-GUI packet: a DMA "end" tag holding the quadword count, then GIF tags.
+///     Only the registers FFX's debug drawers use are read. The count ends the stream, not EOP, which FFX's text
+///     tags set mid-packet (docs/research/gs.md).
 /// </summary>
 public static class GifParser {
     private sealed class State {
@@ -42,9 +38,7 @@ public static class GifParser {
         public readonly List<GsVertex> queue = [];
     }
 
-    /// <summary>Parses <paramref name="buf"/> (starting at the DMA tag) into primitives.</summary>
-    /// <param name="w">GS screen width (FFX: 512).</param>
-    /// <param name="h">GS screen height (FFX: 416).</param>
+    /// <summary>Parses <paramref name="buf"/>, from the DMA tag on, into primitives on a <paramref name="w"/> x <paramref name="h"/> screen.</summary>
     public static List<GsPrim> parse(ReadOnlySpan<byte> buf, int w, int h, int max_prims = 100_000) {
         List<GsPrim> prims = [];
         if (buf.Length < 16) return prims;

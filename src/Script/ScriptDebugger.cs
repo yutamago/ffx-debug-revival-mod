@@ -11,32 +11,22 @@ internal sealed unsafe class MemBlockReader(nint block, long size, IReadOnlyDict
 }
 
 /// <summary>
-///     The event-script debugger, built on the VM's own debugger support
-///     (VERIFIED in FFX.exe, see docs/research/script.md):
-///     <list type="bullet">
-///         <item>ctrl work +8 is the debugger state: 0 run, 1 step, 2 one frame, 3 stopped.
-///               <c>Atel_ExecCtrlWorks</c> skips a stopped ctrl work and turns 1 and 2 into 3.</item>
-///         <item>ctrl work +0x64 holds 4 breakpoints {id, tag, byte*, -, -, saved byte, hit}.
-///               Opcode 0x40 stops a worker on its entry and resumes with the saved instruction.</item>
-///     </list>
-///     All game memory is read and written from the game thread, inside the
-///     <c>Atel_ExecCtrlWorks</c> hook, where no script is mid-instruction;
-///     the UI reads the published snapshots.
+///     The event-script debugger, built on the VM's own support (docs/research/script.md): ctrl work +8 is the
+///     debugger state (0 run, 1 step, 2 one frame, 3 stopped) and +0x64 holds 4 breakpoints for opcode 0x40.
+///     Game memory is touched only inside the <c>Atel_ExecCtrlWorks</c> hook, where no script is mid-instruction.
 /// </summary>
 public sealed unsafe class ScriptDebugger {
-    private const uint BP_TAG = 0x56565244; // "DRVV": our entries
+    private const uint BP_TAG = 0x56565244; // "DRVV" marks our entries
     private const int  MAX_STACK = 19;
 
     private readonly FhLogger _log;
     private readonly NativeNames _names;
 
-    // Commands from the UI, applied in the hook's pre-step.
     private readonly ConcurrentQueue<Action> _commands = new();
 
     /// <summary>One of our breakpoints. <c>Print</c> fingerprints the script it was set in.</summary>
     private sealed record Bp(int Ctrl, int Slot, nint Block, nint Ptr, byte Saved, ulong Print);
 
-    // Game-thread state.
     private bool _in_pass;
     private int  _run_depth;
     private (int ctrl, nint worker, bool stepped)? _step;
@@ -46,37 +36,26 @@ public sealed unsafe class ScriptDebugger {
     private int _listing_bp_version = -1;
     private int _bp_version;
 
-    // The next functions in the hook chains, cached on first use (chains are fixed after init).
     private D.ExecCtrlWorksFn? _next_exec;
     private D.ScriptRunFn?     _next_run;
 
-    // Published for the UI.
     private readonly CtrlSnap?[] _ctrls = new CtrlSnap?[G.CtrlWorkCount];
     public CtrlSnap? ctrl(int i) => Volatile.Read(ref _ctrls[i]);
     public volatile Listing? listing;
     public volatile VarSnap[]? variables;
     public volatile string status = "";
-    public long frame;
 
-    // Selection from the UI.
     public volatile int selected_ctrl;
     public volatile int selected_worker = -1;
-    /// <summary>The local worker whose code to list: -1 = the worker that owns the PC.</summary>
+    /// <summary>The block worker whose code to list; -1 lists the one that holds the PC.</summary>
     public volatile int listing_override = -1;
-
-    public NativeNames names => _names;
 
     public ScriptDebugger(FhLogger log, NativeNames names) {
         _log   = log;
         _names = names;
     }
 
-    public bool init(FhModule owner) {
-        return Calls.Atel_ExecCtrlWorks.hook(owner, h_exec_ctrl_works)
-            && Calls.Script_Run.hook(owner, h_script_run);
-    }
-
-    // ---------------------------------------------------------------- hooks
+    public bool init(FhModule owner) => Calls.Atel_ExecCtrlWorks.hook(owner, h_exec_ctrl_works) && Calls.Script_Run.hook(owner, h_script_run);
 
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private uint h_exec_ctrl_works(int from, int to) {
@@ -85,7 +64,7 @@ public sealed unsafe class ScriptDebugger {
             rearm_breakpoints();
             while (_commands.TryDequeue(out Action? cmd)) cmd();
             if (_step is { } s && s.ctrl >= from && s.ctrl < to) {
-                // Let the event's update run in step mode; the Script_Run hook lets only the stepped worker through.
+                // The Script_Run hook lets only the stepped worker through.
                 set_state(s.ctrl, 1);
             }
         }
@@ -107,7 +86,6 @@ public sealed unsafe class ScriptDebugger {
             }
             int sel = selected_ctrl;
             if (sel >= from && sel < to) snapshot_selected(sel);
-            Interlocked.Increment(ref frame);
         }
         catch (Exception e) { _log.Error($"script debugger post: {e}"); }
         return r;
@@ -116,8 +94,7 @@ public sealed unsafe class ScriptDebugger {
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private uint h_script_run(nint worker, uint mode, uint callbacks) {
         _next_run ??= Calls.Script_Run.chain_from(h_script_run).fnptr!;
-        // Stepping filters only the event update's own calls (depth 0, inside the frame pass,
-        // with the event as the current ctrl work). Nested runs from natives pass through.
+        // Only the event update's own calls are filtered; nested runs from natives pass through.
         if (_run_depth == 0 && _in_pass && _step is { } s
          && Mem.u32(G.CurrentCtrlIdx) == (uint)s.ctrl
          && *(nint*)Mem.at(G.ScriptContext) == ctrl_ptr(s.ctrl)) {
@@ -134,16 +111,10 @@ public sealed unsafe class ScriptDebugger {
         }
     }
 
-    // ------------------------------------------------------------- commands
-
     public void pause(int c)      => _commands.Enqueue(() => { set_state(c, 3); status = $"ctrl {c} paused"; });
     public void frame_step(int c) => _commands.Enqueue(() => { set_state(c, 2); status = $"ctrl {c}: one frame"; });
 
-    /// <summary>
-    ///     Continues. A breakpoint the ctrl work stopped on is lifted until no
-    ///     worker stands on it any more: an instruction that spans frames (a native
-    ///     being polled, a request wait) would otherwise stop again at once.
-    /// </summary>
+    /// <summary>Continues. The breakpoint it stopped on stays lifted until no worker stands on it, since an instruction that spans frames would stop again at once.</summary>
     public void resume(int c) => _commands.Enqueue(() => {
         foreach (Bp b in _our_bps.ToArray()) {
             nint e = ctrl_ptr(b.Ctrl) + 0x64 + b.Slot * 0x10;
@@ -160,20 +131,16 @@ public sealed unsafe class ScriptDebugger {
 
     /// <summary>Runs one instruction of one event worker, then leaves the event stopped.</summary>
     public void step(int c, int worker_index) => _commands.Enqueue(() => {
-        if (c != 0) { status = "single steps are for event scripts (ctrl 0); use 'One frame' elsewhere"; return; }
+        if (c != 0) { status = "single steps work only in the event's scripts (ctrl 0)"; return; }
         CtrlSnap? cs = ctrl(c);
         WorkerSnap? w = cs?.Workers.FirstOrDefault(x => x.Index == worker_index);
         if (w is null || !w.HasLevels) { status = "that worker has no code of its own to step"; return; }
         _step = (c, w.Ptr, false);
     });
 
-    /// <summary>
-    ///     Sets or clears a breakpoint (event scripts only). <paramref name="print"/>
-    ///     is the fingerprint of the listing the click came from; a click from a
-    ///     listing of an older script is refused.
-    /// </summary>
+    /// <summary>Sets or clears a breakpoint. <paramref name="print"/> fingerprints the listing the click came from, so a click on an outdated listing is refused.</summary>
     public void toggle_breakpoint(int c, nint block, ulong print, uint code_offset) => _commands.Enqueue(() => {
-        if (c != 0) { status = "breakpoints are for event scripts (ctrl 0) only"; return; }
+        if (c != 0) { status = "breakpoints work only in the event's scripts (ctrl 0)"; return; }
         nint ctrl = ctrl_ptr(c);
         if ((*(byte*)ctrl & 1) == 0 || *(nint*)(ctrl + 0x48) != block || fingerprint(block) != print) {
             status = "the script changed; click again in the new listing";
@@ -212,8 +179,6 @@ public sealed unsafe class ScriptDebugger {
         status = "breakpoints cleared";
     });
 
-    // --------------------------------------------------------------- helpers
-
     private static nint ctrl_ptr(int c) => Mem.at(G.AtelCtrlWorks) + c * G.CtrlWorkSize;
 
     private static void set_state(int c, byte v) {
@@ -221,7 +186,7 @@ public sealed unsafe class ScriptDebugger {
         *(byte*)(ctrl_ptr(c) + 8) = v;
     }
 
-    /// <summary>Identifies a loaded script: the event id and the block's header (code length, offsets, worker table).</summary>
+    /// <summary>Identifies a loaded script by the event id and the block's header.</summary>
     private static ulong fingerprint(nint block) {
         ulong h = 0xcbf29ce484222325UL;
         void mix(uint v) { h = (h ^ v) * 0x100000001b3UL; }
@@ -267,10 +232,8 @@ public sealed unsafe class ScriptDebugger {
     }
 
     /// <summary>
-    ///     Drops breakpoints whose script went away. A new event resets the table
-    ///     (AtelRequireCtrlWork) without restoring bytes; only when the very same
-    ///     script is still loaded is the 0x40 left behind put back, since a new
-    ///     script at the same address may hold 0x40 as an operand byte.
+    ///     Drops breakpoints whose script went away. A new event resets the table without restoring bytes, but the
+    ///     byte is put back only in the same script: a new one at the same address may hold 0x40 as an operand.
     /// </summary>
     private void validate_breakpoints() {
         for (int i = _our_bps.Count - 1; i >= 0; i--) {
@@ -335,7 +298,7 @@ public sealed unsafe class ScriptDebugger {
         BreakpointSnap[] bps = new BreakpointSnap[4];
         for (int s = 0; s < 4; s++) {
             nint e = ctrl + 0x64 + s * 0x10;
-            bps[s] = new BreakpointSnap(s, *(int*)e, *(uint*)(e + 4), *(nint*)(e + 8), *(byte*)(e + 0xe), *(byte*)(e + 0xf));
+            bps[s] = new BreakpointSnap(s, *(int*)e, *(nint*)(e + 8), *(byte*)(e + 0xe), *(byte*)(e + 0xf));
         }
         if (!in_use || first == 0) {
             return new CtrlSnap(c, in_use, *(byte*)(ctrl + 8), 0, 0, 0, [], bps);
@@ -357,7 +320,7 @@ public sealed unsafe class ScriptDebugger {
         ushort kind = header != 0 ? *(ushort*)header : (ushort)0;
         int local   = local_index(block, header);
         if (!has_levels) {
-            return new WorkerSnap(i, w, block, local, kind, 0, 0, 0, 0, false, 0, false, 0, 0, [], [], [], 0, 0, 0, [], []);
+            return new WorkerSnap(i, w, block, local, kind, 0, 0, 0, false, 0, false, 0, [], [], [], 0, 0, 0, [], []);
         }
 
         int nlev = kind is 5 or 6 ? 2 : 9;
@@ -390,9 +353,9 @@ public sealed unsafe class ScriptDebugger {
 
         return new WorkerSnap(
             i, w, block, local, kind,
-            *(ushort*)(w + 0x2c), level, *(ushort*)(w + 0x34), *(ushort*)(w + 0x36), true,
+            *(ushort*)(w + 0x2c), level, *(ushort*)(w + 0x34), true,
             pc_valid ? (uint)(pc - code) : 0, pc_valid,
-            *(byte*)(L + 0x1f), *(byte*)(L + 0x1e), calls, iregs, fregs,
+            *(byte*)(L + 0x1f), calls, iregs, fregs,
             *(uint*)(L + 0x20), *(uint*)(L + 0x24), *(float*)(L + 0x28),
             stack, [ .. sigs ]);
     }
@@ -403,11 +366,11 @@ public sealed unsafe class ScriptDebugger {
         WorkerSnap? w = cs?.Workers.FirstOrDefault(x => x.Index == selected_worker);
         if (cs is null || w is null || w.Block == 0) { listing = null; variables = null; return; }
 
-        // The worker whose code holds the PC: inside a JSR that is the callee's, a 0x30-byte namespace worker.
+        // Inside a JSR the PC is in the callee's code, a 0x30-byte namespace worker.
         int local = listing_override >= 0 ? listing_override : w.LocalIndex;
         long size = Mem.readable_end(w.Block, 0x400000) - w.Block;
-        if (size <= 0x38) { listing = null; return; }
-        // Code past the last worker's start runs to the block's end; keep that within reason.
+        if (size <= 0x38) { listing = null; variables = null; return; }
+        // The last worker's code runs to the block's end; cap it.
         size = Math.Min(size, (long)*(uint*)(w.Block + 0x30) + *(uint*)w.Block + 0x10000);
 
         Dictionary<long, byte> overlay = [];

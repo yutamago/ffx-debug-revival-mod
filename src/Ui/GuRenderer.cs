@@ -6,13 +6,8 @@ using Yuta.DebugRevival.Gs;
 namespace Yuta.DebugRevival.Ui;
 
 /// <summary>
-///     Draws the PS2 debug GUI's packets with ImGui, over the game and under
-///     the mod's own window, stretched over the screen the way the game
-///     stretches its PS2-space UI (512 x 416). GS rules: flat primitives take
-///     the last vertex's colour; textured ones modulate the font by the vertex
-///     colour (7-bit, so doubled), except the cursor (decal); ABE blends with
-///     alpha A/128; the window shadow darkens by FIX/128.
-///     Render thread only; reads the frames GuToolkit publishes.
+///     Draws the PS2 debug GUI's primitives under the mod's window, stretched over the screen as the game stretches
+///     its PS2-space UI. Follows the GS: vertex colours are 7-bit, alpha is A/128, the shadow darkens by FIX/128.
 /// </summary>
 public sealed class GuRenderer(GuToolkit gu, string font_path) {
     private FhTexture? _font;
@@ -27,16 +22,12 @@ public sealed class GuRenderer(GuToolkit gu, string font_path) {
         if (gu.capture_mouse) capture_input(io, ds);
 
         GuToolkit.Frame? f = gu.frame;
-        if (f is null || Environment.TickCount64 - f.Stamp > 500) return;
+        if (f is null || Environment.TickCount64 - f.Stamp > 500) return; // no new frame for half a second
         ImTextureRef? tex = font();
         draw_frame(ImGui.GetBackgroundDrawList(), f, ds, tex);
     }
 
-    /// <summary>
-    ///     An invisible full-screen window: while the cursor is over it (not over
-    ///     the mod's window) the mouse goes to the toolkit, and ImGui's capture
-    ///     keeps the clicks away from the game.
-    /// </summary>
+    // An invisible full-screen window: where the mod's window isn't, the mouse goes to the toolkit and not the game.
     private void capture_input(ImGuiIOPtr io, Vector2 ds) {
         ImGui.SetNextWindowPos(Vector2.Zero);
         ImGui.SetNextWindowSize(ds);
@@ -71,7 +62,7 @@ public sealed class GuRenderer(GuToolkit gu, string font_path) {
             }
             if (_font.try_use(out ImTextureRef r, out _)) return r;
             if (!FhApi.Resources.load_texture_from_disk(_font)) {
-                // A failed load leaves the texture locked; retry with a fresh handle a few times.
+                // A failed load leaves the handle locked, so retry with a fresh one.
                 _font = null;
                 if (++_load_attempts > 5) _font_failed = true;
                 return null;

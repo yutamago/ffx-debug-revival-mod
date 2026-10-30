@@ -3,12 +3,8 @@
 namespace Yuta.DebugRevival.Native;
 
 /// <summary>
-///     Work for the game thread. <c>render_imgui</c> runs on the render thread
-///     while the game thread already runs the next update, so the UI never
-///     calls game functions or writes game state itself: it queues an action,
-///     and the queue is drained before each <c>Sg_MainLoop</c> (Fahrenheit's
-///     PreUpdate). The queue waits while the PC menu is open, since the game
-///     skips <c>Sg_MainLoop</c> then.
+///     Actions the UI queues for the game thread, which runs the next update while the render thread draws.
+///     Drained before each <c>Sg_MainLoop</c>, so the queue waits while the PC menu is open.
 /// </summary>
 public static class GameThread {
     private static readonly ConcurrentQueue<(string what, Action act)> _queue = new();
@@ -30,6 +26,4 @@ public static class GameThread {
             }
         }
     }
-
-    public static int pending => _queue.Count;
 }
