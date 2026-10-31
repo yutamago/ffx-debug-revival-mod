@@ -47,6 +47,13 @@ public static class D {
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisIntFn(nint self, int a);
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisPtrFn(nint self, nint a);
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate int  ThisIntPtrToIntFn(nint self, int a, nint b);
+    [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate nint ThisPtrToPtrFn(nint self, nint a);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint PtrPtrToPtrFn(nint a, nint b);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  PtrIntToIntFn(nint a, int b);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint IntPtrPtrToPtrFn(int a, nint b, nint c);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint FontWidthFn(nint text, int kind, nint width, int table);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint TextureNameFn(int id, int nibbles, int index, int high, nint size);
 }
 
 /// <summary>Call handles. They are ref structs, so each property makes a fresh one.</summary>
@@ -167,6 +174,26 @@ public static class Calls {
     public static FhCallHandle<D.RetIntFn> Sg_GetIgnoreID => h<D.RetIntFn>(0x0082d830);
     /// <summary>thiscall (FreeCamera*): toggles the photo-mode pause.</summary>
     public static FhCallHandle<D.ThisFn> FreeCamera_setFreePause => h<D.ThisFn>(0x00680320);
+
+    // ---- text and fonts; docs/research/font.md ----
+    /// <summary>cdecl (map): loads the map's .ebp, its text in the game's language and its .ftc, and sets up its scripts.</summary>
+    public static FhCallHandle<D.IntFn> AtelEventSetUp => h<D.IntFn>(0x00872ef0);
+    /// <summary>cdecl (file) -> 0 when loaded: copies an .ftc's widths into font dictionary [file+8].</summary>
+    public static FhCallHandle<D.PtrToIntFn> TOFTCTransfer => h<D.PtrToIntFn>(0x008ac130);
+    /// <summary>cdecl (text, out) -> the text after the glyph: fills the 0x24-byte glyph record.</summary>
+    public static FhCallHandle<D.PtrPtrToPtrFn> TOGetFontInfo => h<D.PtrPtrToPtrFn>(0x008b7240);
+    /// <summary>cdecl (text, kind, &amp;width, dictionary) -> the text after the glyph.</summary>
+    public static FhCallHandle<D.FontWidthFn> TOGetFontWidth => h<D.FontWidthFn>(0x008b9330);
+    /// <summary>cdecl (slot i16, nibbles u8, index i16, high u16, &amp;size) -> the font atlas's cluster path.</summary>
+    public static FhCallHandle<D.TextureNameFn> TOGetTextureName => h<D.TextureNameFn>(0x008acf50);
+    /// <summary>cdecl (slot, &amp;w, &amp;h) -> &amp;h: the size of a font page or menu image.</summary>
+    public static FhCallHandle<D.IntPtrPtrToPtrFn> TOGetImageWH => h<D.IntPtrPtrToPtrFn>(0x008ac400);
+    /// <summary>cdecl () -> [0x00ccca4c].</summary>
+    public static FhCallHandle<D.RetPtrFn> ClusterManager_GetInstance => h<D.RetPtrFn>(0x0069a1a0);
+    /// <summary>thiscall (ClusterManager*, path) ret 4 -> the cluster, 0 when the load failed; counts references.</summary>
+    public static FhCallHandle<D.ThisPtrToPtrFn> ClusterManager_loadPCluster => h<D.ThisPtrToPtrFn>(0x0069b940);
+    /// <summary>cdecl (clusters, count).</summary>
+    public static FhCallHandle<D.PtrIntToIntFn> PApplication_FixupClusters => h<D.PtrIntToIntFn>(0x00623580);
 }
 
 /// <summary>Globals the mod reads or writes (ffx.sym addresses).</summary>
@@ -209,4 +236,9 @@ public static class G {
     public const uint AsyncControllerOn = 0x0133c930; // u8
     public const uint PauseRequest      = 0x01340850; // int
     public const uint PauseEntered      = 0x0134084c; // int
+
+    // text
+    public const uint EventEbp      = 0x023cbd70; // ptr, the loaded .ebp; [+8] its own message table, [+0x18] its size
+    public const uint EventMessages = 0x01327128; // ptr, the event's text in the game's language, 0 when it has none
+    public const uint FontDics      = 0x01841da0; // 6 x 16 bytes: +0 image, +4 width table, +0xc i16 w, +0xe i16 h
 }
