@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 //
-// For every map (event) id: the number of entrances and whether a jump to it crashes or hangs FFX.exe (Steam HD, the
-// build in ffx-decomp's symbols/ffx.sym). Needs FFX_GAME_DIR and FFX_CLI (the `ffx` binary of ffx-decomp).
+// For every map (event) id: the number of entrances, whether a jump to it crashes or hangs FFX.exe (Steam HD, the
+// build in ffx-decomp's symbols/ffx.sym), and its place-name index (the save screen's place; the mod asks the game
+// for the name in the player's language). Needs FFX_GAME_DIR and FFX_CLI (the `ffx` binary of ffx-decomp).
 //
 // usage: dotnet run tools/gen-map-table.cs -- [out.tsv]   (default src/Features/maps.tsv, - for stdout)
 //        dotnet run tools/gen-map-table.cs -- --detail [out.tsv]   (adds the map index per language; not for
@@ -115,6 +116,14 @@ string map_reason(int idx) {
     return name_at(map_span.first + 2L * idx) is null ? "map_name" : "";
 }
 
+// The place-name index AtelSetSaveDicIndex 0x00870ef0 stores: header +0x1e, or entry 0 of the table at +0x28 when
+// bit 15 is set.
+int place_index(byte[] ebp) {
+    long hdr = u32(ebp, 4);
+    int place = BinaryPrimitives.ReadUInt16LittleEndian(ebp.AsSpan((int)(hdr + 0x1e)));
+    return (place & 0x8000) == 0 ? place : BinaryPrimitives.ReadUInt16LittleEndian(ebp.AsSpan((int)(hdr + u32(ebp, hdr + 0x28))));
+}
+
 // (entrances, map index per language) of an .ebp, as AtelEventSetUp 0x00872ef0 and AtelGetMapIndex 0x0086bd90 read
 // it; entrances -1 without a table.
 (int entrances, Dictionary<int, int> maps) script_info(byte[] ebp) {
@@ -143,12 +152,12 @@ SortedSet<int> ids = [ .. Enumerable.Range(0, (int)(u32(eventid, 0) / 8)),
 
 // Written by the script, not a shell redirect, so the bytes are the same in every shell and OS.
 TextWriter output = new StreamWriter(out_path == "-" ? Console.OpenStandardOutput() : File.Create(out_path)) { NewLine = "\n" };
-output.WriteLine("# map_id\tentrances\tcrash_reason  (gen-map-table.cs; entrances -1: no table, the player lands on the "
-          + "default record; empty reason: no known crash)");
+output.WriteLine("# map_id\tentrances\tcrash_reason\tplace  (gen-map-table.cs; entrances -1: no table, the player lands on "
+          + "the default record; empty reason: no known crash; place -1: no script)");
 foreach (int m in ids) {
     string? name = name_at(ev_first + (long)m * FILES_PER_EVENT);
     if (name is null && calm.TryGetValue(m, out string? built_in)) name = built_in; // Cd_QueueRead / AtelEventSetUp use it
-    int entrances = -1;
+    int entrances = -1, place = -1;
     string reason = "", extra = "";
     if (name is null) reason = "no_name";
     else if (!files.Contains(vbf_path(name))) reason = "no_file";
@@ -159,6 +168,7 @@ foreach (int m in ids) {
         if (ebp.Length < 2 || ebp[0] != 'E' || ebp[1] != 'V') {
             if (reason.Length == 0) reason = "not_ev";
         } else {
+            place = place_index(ebp);
             (entrances, Dictionary<int, int> maps) = script_info(ebp);
             // reason -> the languages that hit it, in LANGS order
             SortedDictionary<string, List<int>> bad = new(StringComparer.Ordinal);
@@ -173,7 +183,7 @@ foreach (int m in ids) {
         }
     }
     if (m == reset_map && reason.Length == 0) reason = "soft_reset";
-    output.WriteLine($"{m}\t{entrances}\t{reason}{extra}");
+    output.WriteLine($"{m}\t{entrances}\t{reason}\t{place}{extra}");
 }
 output.Dispose();
 

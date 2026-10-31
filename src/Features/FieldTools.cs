@@ -8,7 +8,7 @@ namespace Yuta.DebugRevival.Features;
 ///     Field debug features: the debug pad's noclip and speed-up, random encounters, map jumps, the developer saves
 ///     and the PC port's free camera (docs/research/overlays.md 4.1, field.md).
 /// </summary>
-public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag flag, Dictionary<int, int> entrances) {
+public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag flag, Dictionary<int, FieldTools.MapInfo> map_info) {
     public volatile bool noclip;
     public volatile bool bind_camera_keys;
 
@@ -31,10 +31,18 @@ public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag fla
                                   int FreeCamType, bool PhotoPause, float FlySpeed, string Place);
 
     /// <param name="Entrances">How many entrances the map's script lists; 0 when unknown or none.</param>
-    public sealed record MapEntry(int Id, string Name, JumpRisk Risk, int Entrances);
+    /// <param name="Title">The place name the save screen shows, in the game's language; empty when it has none.</param>
+    public sealed record MapEntry(int Id, string Name, string Title, JumpRisk Risk, int Entrances);
+
+    /// <summary>A developer save: the place and story progress it starts at.</summary>
+    public sealed record DevSave(int Number, string Title, int Story, int Map);
+
+    /// <summary>A row of maps.tsv (tools/gen-map-table.cs): entrance count and place-name index (-1 for none).</summary>
+    public readonly record struct MapInfo(int Entrances, int Place);
 
     public volatile Snapshot? snap;
     public volatile MapEntry[]? maps;
+    public volatile DevSave[]? dev_saves;
     private readonly Dictionary<int, JumpRisk> _risks = [];
     private string _place = "";
     private long _frame;
@@ -50,15 +58,43 @@ public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag fla
     // FFX_Data.vbf, so it always failed. This reads them through the game's file layer, which knows the VBF.
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private int h_load_for_viewer(int n, nint dst, uint size) {
-        byte[] path = Encoding.ASCII.GetBytes($"/FFX_Data/GameData/PS3Data/savesforviewer/{n}\0");
-        byte* name = stackalloc byte[0x100];
-        fixed (byte* p = path) Calls.fiosUnifyFilename.fnptr!((nint)p, (nint)name, 0x100);
-        if ((Calls.fiosIsFileExist.fnptr!((nint)name) & 0xff) == 0) return 1;
-        nint file = Calls.fiosOpen.fnptr!((nint)name, 1);
-        if (file == 0) return 1;
-        Calls.fiosRead.fnptr!(file, dst, size);
-        Calls.fiosClose.fnptr!(file);
+        string path = viewer_save_path(n);
+        if (!file_exists(path)) return 1;
+        using FhVbfFileScope file = new(path);
+        file.read(new Span<byte>((void*)dst, (int)size));
         return 0;
+    }
+
+    private static string viewer_save_path(int n) => $"/FFX_Data/GameData/PS3Data/savesforviewer/{n}";
+
+    // The save block TkDebugLoadViewerSave copies starts at +0x40: +0xe the place-name index, +0xba the map it warps
+    // to, +0xbec the story progress.
+    private static DevSave? read_dev_save(int n) {
+        string path = viewer_save_path(n);
+        if (!file_exists(path)) return null;
+        using FhVbfFileScope file = new(path);
+        byte[] buf = new byte[file.get_file_size()];
+        if (buf.Length < 0x40 + 0xbee || file.read(buf) < 0x40 + 0xbee) return null;
+        ushort u16(int o) => BitConverter.ToUInt16(buf, 0x40 + o);
+        return new DevSave(n, place_name(u16(0xe)), u16(0xbec), u16(0xba));
+    }
+
+    /// <summary>A place name from the save screen's dictionary, in the game's language.</summary>
+    private static string place_name(int index) {
+        // Index 0 is what the test maps and special scenes (gameover, memochek) use.
+        if (index <= 0) return "";
+        try {
+            nint p = Calls.AtelGetSaveDicName.fnptr!((ushort)index, 0);
+            if (p == 0 || !Mem.readable(p, 1)) return "";
+            int len = 0;
+            while (len < 64 && *(byte*)(p + len) != 0) len++;
+            Span<byte> dest = stackalloc byte[256];
+            int n = FhEncoding.decode(new ReadOnlySpan<byte>((void*)p, len), dest, flags: FhEncodingFlags.IMPLICIT_END);
+            return Encoding.UTF8.GetString(dest[..Math.Clamp(n, 0, dest.Length)]).Trim();
+        }
+        catch (Exception) {
+            return "";
+        }
     }
 
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
@@ -126,15 +162,16 @@ public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag fla
         return file_exists($"/ffx_ps2/ffx/master/new_{dir}pc/event/obj_ps3/{parts[0]}/{parts[1]}/{parts[1]}.bin");
     }
 
-    /// <summary>Entrance counts per map, from maps.tsv (tools/gen-map-table.cs).</summary>
-    public static Dictionary<int, int> parse_entrances(string tsv) {
-        Dictionary<int, int> counts = [];
+    public static Dictionary<int, MapInfo> parse_map_table(string tsv) {
+        Dictionary<int, MapInfo> rows = [];
         foreach (string line in tsv.Split('\n')) {
             if (line.Length == 0 || line[0] == '#') continue;
             string[] f = line.TrimEnd('\r').Split('\t');
-            if (f.Length >= 2 && int.TryParse(f[0], out int id) && int.TryParse(f[1], out int n)) counts[id] = Math.Max(n, 0);
+            if (f.Length >= 4 && int.TryParse(f[0], out int id) && int.TryParse(f[1], out int n) && int.TryParse(f[3], out int place)) {
+                rows[id] = new MapInfo(Math.Max(n, 0), place);
+            }
         }
-        return counts;
+        return rows;
     }
 
     private static bool in_field => *(nint*)Mem.at(G.ScriptContext) != 0;
@@ -172,21 +209,7 @@ public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag fla
     }
 
     /// <summary>The place name the save screen shows.</summary>
-    private static string read_place() {
-        try {
-            ushort dic = Calls.AtelGetSaveDic.fnptr!();
-            nint p = Calls.AtelGetSaveDicName.fnptr!(dic, 0);
-            if (p == 0 || !Mem.readable(p, 1)) return "";
-            int len = 0;
-            while (len < 64 && *(byte*)(p + len) != 0) len++;
-            Span<byte> dest = stackalloc byte[256];
-            int n = FhEncoding.decode(new ReadOnlySpan<byte>((void*)p, len), dest, flags: FhEncodingFlags.IMPLICIT_END);
-            return Encoding.UTF8.GetString(dest[..Math.Clamp(n, 0, dest.Length)]).Trim();
-        }
-        catch (Exception) {
-            return "";
-        }
-    }
+    private static string read_place() => place_name(Calls.AtelGetSaveDic.fnptr!());
 
     // The game rebuilds its input map on some screens, unbound again.
     private static void bind_keys() {
@@ -225,9 +248,15 @@ public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag fla
                 sb.Append((char)b);
             }
             int id = *(int*)(e + 0xc);
-            list[i] = new MapEntry(id, sb.ToString(), risk(id), entrances.GetValueOrDefault(id));
+            MapInfo info = map_info.GetValueOrDefault(id, new MapInfo(0, -1));
+            list[i] = new MapEntry(id, sb.ToString(), place_name(info.Place), risk(id), info.Entrances);
         }
         maps = [ .. list.OrderBy(m => m.Id) ];
+        List<DevSave> saves = [];
+        for (int n = 1; n <= VIEWER_SAVE_COUNT; n++) {
+            if (read_dev_save(n) is DevSave d) saves.Add(d);
+        }
+        dev_saves = [ .. saves ];
     });
 
     /// <param name="allow_reset">The player confirmed that this map resets the game.</param>
