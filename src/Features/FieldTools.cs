@@ -185,7 +185,7 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag, Dictionary<
 
     /// <summary>Reads the developers' event list: every map id with its internal name.</summary>
     public void load_maps() => GameThread.post("map list", () => {
-        flag.ensure_event_list();
+        if (!flag.ensure_event_list()) { Status.failed("the map list stays off: the safety hooks are not installed"); return; }
         int count = Math.Clamp(Mem.i32(G.EventCount), 0, 1024);
         nint table = *(nint*)Mem.at(G.EventTable);
         if (table == 0 || count == 0) { Status.failed("the map list could not be read"); return; }

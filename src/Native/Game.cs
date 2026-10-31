@@ -82,6 +82,12 @@ public static class Calls {
     public static FhCallHandle<D.VoidFn> StatsAndAchievements_ResetAll => h<D.VoidFn>(RESET_ALL_VA);
     /// <summary>cdecl (n): loads developer save n from savesforviewer/ over the game and warps.</summary>
     public static FhCallHandle<D.IntFn> TkDebugLoadViewerSave => h<D.IntFn>(VIEWER_SAVE_VA);
+    public const uint MEM_SET_CURRENT_ADDR_VA = 0x0083c4e0;
+    /// <summary>cdecl (p): Sg_MemSetRtAddr([0x00c8f6f8]), then tags bits 4..25 of [p - 4]; called after the debug file reads.</summary>
+    public static FhCallHandle<D.PtrFn> Sg_MemSetCurrentAddr => h<D.PtrFn>(MEM_SET_CURRENT_ADDR_VA);
+    /// <summary>cdecl (a): 0x013019b0 = ((a - 8) >> 2) &amp; 0x7fffff.</summary>
+    public static FhCallHandle<D.IntFn> Sg_MemSetRtAddr => h<D.IntFn>(0x0083c560);
+    public const uint SG_MEM_RT_BASE = 0x00c8f6f8;
 
     // ---- battle ----
     public static FhCallHandle<D.VoidFn> void_fn(uint va) => h<D.VoidFn>(va);

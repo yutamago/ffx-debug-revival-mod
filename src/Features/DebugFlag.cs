@@ -8,7 +8,7 @@ namespace Yuta.DebugRevival.Features;
 ///     The game's debug flag (g_FFXIsDebug), switched at runtime. A normal boot skips what a debug boot sets up,
 ///     so the hooks here keep the flag away from the code that would crash without it (docs/research/field.md, section 5).
 /// </summary>
-public sealed unsafe class DebugFlag {
+public sealed unsafe class DebugFlag(Guards guards) {
     private bool _buffer_made;
     private bool _events_built;
 
@@ -81,11 +81,13 @@ public sealed unsafe class DebugFlag {
         Status.done(value ? "debug flag on" : "debug flag off");
     });
 
-    /// <summary>Builds the developers' event list once. Game thread.</summary>
-    public void ensure_event_list() {
-        if (_events_built) return;
+    /// <summary>Builds the developers' event list once; refused while the heap guard isn't in place. Game thread.</summary>
+    public bool ensure_event_list() {
+        if (_events_built) return true;
+        if (!guards.verified) return false;
         Calls.initEventList.fnptr!();
         _events_built = true;
+        return true;
     }
 
     /// <summary>Game thread, every frame.</summary>

@@ -30,7 +30,7 @@ public sealed class DebugRevivalModule : FhModule {
         string font_path = Path.Combine(resources.FullName, "debugfont.generated.tga");
 
         _guards  = new Guards(_logger);
-        _flag    = new DebugFlag();
+        _flag    = new DebugFlag(_guards);
         _scripts = new ScriptDebugger(_logger, names);
         _panels  = new TweakPanels(_guards, _flag);
         _battle  = new BattleDebug();
