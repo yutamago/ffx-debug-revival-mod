@@ -34,7 +34,7 @@ public sealed class DebugRevivalModule : FhModule {
         _scripts = new ScriptDebugger(_logger, names);
         _panels  = new TweakPanels(_guards, _flag);
         _battle  = new BattleDebug();
-        _field   = new FieldTools(_guards, _flag, entrances);
+        _field   = new FieldTools(_logger, _guards, _flag, entrances);
         _log     = new DebugLog();
         _gu      = new GuToolkit(_flag);
         _gu_renderer = new GuRenderer(_gu, font_path);

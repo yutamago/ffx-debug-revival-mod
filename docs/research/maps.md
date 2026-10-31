@@ -134,3 +134,29 @@ only some languages hit it), and `soft_reset`. The output holds only ids, counts
   given entrance) was not analysed beyond the debug-native scan. Such a map can still misbehave
   or soft-lock after a successful load.
 - `iVoiceDataChange` / `iSyncDataChange` / sound-bank loads by map were not traced.
+
+## Effects
+
+A jump while an event effect plays can crash the game in a particle draw job
+(dump `31102026_003039.dmp`, map 297 reached from the title screen's attract
+demo, `loopdemo`, which plays effect 662). VERIFIED in code unless noted:
+
+- A map change force-ends a running effect: `TkInitScene` -> `AtelEventRemove`
+  -> `MsEventEffectFree` (it logs "EFFECT SYNC ERROR") -> `MagicFile_Stop`,
+  which marks the effect's `magic_NNNN.dll` for unloading.
+- In the same frame, `Sg_MainLoop` queues the effect's particles for drawing,
+  then `MagicFile_Update` -> `MagicFile_Unload` -> `PhyreFIOS_UnloadPrx` frees
+  the DLL, and only then does `updateFFX` hand the queued particles to the job
+  threads (`JobSchedule_pppPart_fillBuffer_Kick`). Nothing waits in between.
+  In the dump four job threads fault in `fillBuffer_drawMdl` reading
+  `[part+0x18]` inside the freed DLL.
+- The game's scripts wait for their effect to end (native 0x00de) before they
+  leave a map. The debug flag's jump bypass skips that.
+- The third argument of `AtelSetEventJump2` only selects the fade.
+
+The mod refuses its map jumps, developer-save loads and battle starts while any
+of these holds: the event-effect state (i8 at 0x01133364) is not 0, the loaded
+magic handle (i32 at 0x00c64cac) is not -1, or the pending-unload handle (i32 at
+0x00c64cb0) is not -1. Not verified: that the forced end leaves the particles
+queued for the rest of the frame (`op_ovl_effect_free` was not traced).
+

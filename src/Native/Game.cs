@@ -200,6 +200,11 @@ public static class G {
     public const uint EventTable     = 0x025d5888; // ptr to 16-byte entries {name[12], id} (initEventList)
     public const uint EventCount     = 0x01934ec8; // int
 
+    // event effects (MsEventEffectFree, MagicFile_Load/Stop/Update)
+    public const uint EventEffectState   = 0x01133364; // i8, 0 = no event effect
+    public const uint MagicLoaded        = 0x00c64cac; // i32 handle, -1 = none
+    public const uint MagicPendingUnload = 0x00c64cb0; // i32 handle, -1 = none
+
     // free camera gates
     public const uint AsyncControllerOn = 0x0133c930; // u8
     public const uint PauseRequest      = 0x01340850; // int

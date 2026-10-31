@@ -186,6 +186,7 @@ public sealed unsafe class BattleDebug {
         if (_picker_label == 0) { Status.refused("look up a battle first"); return; }
         if (battle_state != 0) { Status.refused("already in a battle"); return; }
         if (!FieldTools.jump_allowed()) { Status.refused("only while you control the player in the field"); return; }
+        if (FieldTools.effect_active) { Status.refused("wait until the effect on screen has finished"); return; }
         Calls.void_fn(TO_ALL_CLEAR_MESSAGE_WINDOW).fnptr!();
         Calls.MsBattleLabelExe.fnptr!(_picker_label, 0, 0);
         if (B->battle_trigger == 2) Status.done("battle requested");

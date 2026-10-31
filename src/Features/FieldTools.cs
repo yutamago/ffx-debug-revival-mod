@@ -8,7 +8,7 @@ namespace Yuta.DebugRevival.Features;
 ///     Field debug features: the debug pad's noclip and speed-up, random encounters, map jumps, the developer saves
 ///     and the PC port's free camera (docs/research/overlays.md 4.1, field.md).
 /// </summary>
-public sealed unsafe class FieldTools(Guards guards, DebugFlag flag, Dictionary<int, int> entrances) {
+public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag flag, Dictionary<int, int> entrances) {
     public volatile bool noclip;
     public volatile bool bind_camera_keys;
 
@@ -139,6 +139,14 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag, Dictionary<
 
     private static bool in_field => *(nint*)Mem.at(G.ScriptContext) != 0;
 
+    /// <summary>
+    ///     Whether an event effect is playing or its DLL is loaded or waiting to unload. A map change force-ends it
+    ///     and frees the DLL in the same frame its particles are queued for drawing, which crashes the draw jobs
+    ///     (docs/research/maps.md, "Effects"). The game's scripts wait for their effects before leaving a map.
+    /// </summary>
+    internal static bool effect_active =>
+        Mem.i8(G.EventEffectState) != 0 || Mem.i32(G.MagicLoaded) != -1 || Mem.i32(G.MagicPendingUnload) != -1;
+
     /// <summary>AtelSetEventJump(2)'s own check: the current ctrl work allows leaving the map (bit 0x80), or the debug flag is on.</summary>
     internal static bool jump_allowed() {
         nint ctx = *(nint*)Mem.at(G.ScriptContext);
@@ -230,7 +238,9 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag, Dictionary<
             case JumpRisk.Reset when !allow_reset: Status.refused($"map {map} returns to the title screen"); return;
         }
         if (!in_field) { Status.refused("map jumps work only in the field"); return; }
+        if (effect_active) { Status.refused("wait until the effect on screen has finished"); return; }
         if (!jump_allowed()) { Status.refused("you can't leave this map right now; the debug flag allows it"); return; }
+        log.Info($"map jump: {*Fahrenheit.FFX.Globals.event_id} -> {map}, entrance {entrance}");
         Calls.AtelSetEventJump2.fnptr!(map, entrance, 0);
         Status.done($"jumping to map {map}, entrance {entrance}");
     });
@@ -243,9 +253,11 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag, Dictionary<
 
     public void load_viewer_save(int n) => GameThread.post("developer save", () => {
         if (!in_field) { Status.refused("developer saves load only in the field"); return; }
+        if (effect_active) { Status.refused("wait until the effect on screen has finished"); return; }
         if (!jump_allowed()) { Status.refused("you can't leave this map right now; the debug flag allows it"); return; }
         Mem.set_u32(G.ViewerSaveLast, 0xffffffff); // the loader skips a repeat of the last one
         guards.viewer_save_once = true;
+        log.Info($"developer save {n} on map {*Fahrenheit.FFX.Globals.event_id}");
         Calls.TkDebugLoadViewerSave.fnptr!(n);
         guards.viewer_save_once = false;
         if (Mem.u32(G.ViewerSaveLast) == (uint)n) Status.done($"developer save {n} loaded");
