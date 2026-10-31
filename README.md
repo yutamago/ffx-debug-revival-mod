@@ -54,6 +54,11 @@ order can break progression, and some maps may still get stuck if the story
 isn't where their script expects. **Model viewer** turns the debug flag on
 and goes to grid00, the developers' model viewer map.
 
+About 60 maps, mostly the developers' test maps, have no text in your
+language. Without the mod their first message crashes the game; with it they
+show their original Japanese text. A few kanji that only the Japanese version
+loads show as `？`.
+
 ### Developer saves
 
 `FFX_Data` holds about 110 saves the developers used to jump into each part of

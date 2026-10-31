@@ -10,6 +10,8 @@ namespace Yuta.DebugRevival.Features;
 /// </summary>
 public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag flag, Dictionary<int, FieldTools.MapInfo> map_info) {
     public volatile bool noclip;
+    /// <summary>Set when <see cref="JapaneseText"/> is in place, so maps without text in the game's language no longer crash.</summary>
+    public bool shows_builtin_text;
     public volatile bool bind_camera_keys;
 
     // (input map pair, action bit, Phyre key binding) of the free camera's two actions, which ship bound to nothing.
@@ -24,7 +26,8 @@ public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag fla
 
     /// <summary>What a jump to a map would do instead of loading it (docs/research/maps.md).</summary>
     /// <param name="NoText">The map has no text in the game's language, so its script shows the Japanese text built
-    /// into it, whose glyph pages a non-Japanese game never loads: the first message crashes (TOGetFontWidth).</param>
+    /// into it, whose glyph pages a non-Japanese game never loads: the first message crashes (TOGetFontWidth). Only
+    /// reported when <see cref="JapaneseText"/> could not hook the font functions.</param>
     public enum JumpRisk { None, Crash, Freeze, Reset, NoText }
 
     public sealed record Snapshot(int EventId, bool JumpAllowed, bool FlagOn, uint Encounters, sbyte ExecFrames,
@@ -133,6 +136,7 @@ public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag fla
             0 => JumpRisk.Crash,
             nint name => script_risk(Mem.cstr(name, 0x400)),
         };
+        if (r == JumpRisk.NoText && shows_builtin_text) r = JumpRisk.None;
         _risks[map] = r;
         return r;
     }

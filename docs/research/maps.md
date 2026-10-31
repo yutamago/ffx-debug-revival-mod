@@ -126,6 +126,12 @@ FFX_GAME_DIR=<game dir> FFX_CLI=<ffx-decomp's ffx binary> \
 Codes: `no_name`, `no_file`, `bad_path`, `not_ev`, `map_name`, `map_range` (a `@langs` suffix when
 only some languages hit it), and `soft_reset`. The output holds only ids, counts and codes.
 
+## Maps without text in the game's language
+
+60 scripts have no text file for an English game and show the Japanese text built into their
+.ebp; the first message crashed in `TOGetFontWidth` 0x008b9330. The mod now loads the Japanese base
+font for them and no longer warns about these maps: [font.md](font.md).
+
 ## Not verified
 
 - The fault address was read from the asm, not seen in a run. Whether `no_file` hangs or the
