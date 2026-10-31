@@ -45,7 +45,7 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag, Dictionary<
         Calls.Sg_GetIgnoreID.hook(owner, h_ignore_id) && Calls.debugLoadForViewer.hook(owner, h_load_for_viewer);
 
     // The developers' loader opens the save from disk with fopen, but the PC version ships the saves inside
-    // FFX_Data.vbf, so it always failed. This reads them the way sceOpen reads the game's files.
+    // FFX_Data.vbf, so it always failed. This reads them through the game's file layer, which knows the VBF.
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private int h_load_for_viewer(int n, nint dst, uint size) {
         byte[] path = Encoding.ASCII.GetBytes($"/FFX_Data/GameData/PS3Data/savesforviewer/{n}\0");
@@ -99,12 +99,14 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag, Dictionary<
         return r;
     }
 
-    // sceOpen is the same check the loader makes.
+    // sceOpen's own test ("/ffx_ps2/" + the name past "host0:/", unified, then fiosIsFileExist), without opening the
+    // file: opening and closing 400 files at once corrupted the game's heap.
     private static bool file_exists(nint name) {
-        int fd = Calls.sceOpen.fnptr!(name, 1);
-        if (fd == 0) return false;
-        Calls.sceClose.fnptr!(fd);
-        return true;
+        string path = "/ffx_ps2/" + Mem.cstr(name + 7, 0x3f0) + "\0";
+        byte[] bytes = Encoding.ASCII.GetBytes(path);
+        byte* unified = stackalloc byte[0x400];
+        fixed (byte* p = bytes) Calls.fiosUnifyFilename.fnptr!((nint)p, (nint)unified, 0x400);
+        return (Calls.fiosIsFileExist.fnptr!((nint)unified) & 0xff) != 0;
     }
 
     /// <summary>Entrance counts per map, from maps.tsv (tools/gen-map-table.cs).</summary>

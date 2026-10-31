@@ -370,16 +370,17 @@ public sealed unsafe class ScriptDebugger {
 
         // Inside a JSR the PC is in the callee's code, a 0x30-byte namespace worker.
         int local = listing_override >= 0 ? listing_override : w.LocalIndex;
-        long size = Mem.readable_end(w.Block, 0x400000) - w.Block;
-        if (size <= 0x38) { listing = null; variables = null; return; }
-        // The last worker's code runs to the block's end; cap it.
-        size = Math.Min(size, (long)*(uint*)(w.Block + 0x30) + *(uint*)w.Block + 0x10000);
+        long readable = Mem.readable_end(w.Block, 0x400000) - w.Block;
+        if (readable <= 0x38) { listing = null; variables = null; return; }
+        // The last worker's code runs to the block's end, so cap that, but not the reader: the worker tables can sit
+        // well past the code.
+        long code_end = Math.Min(readable, (long)*(uint*)(w.Block + 0x30) + *(uint*)w.Block + 0x10000);
 
         Dictionary<long, byte> overlay = [];
         foreach (BreakpointSnap b in cs.Breakpoints) {
-            if (b.Id >= 0 && b.Ptr >= w.Block && b.Ptr < w.Block + (nint)size) overlay[b.Ptr - w.Block] = b.Saved;
+            if (b.Id >= 0 && b.Ptr >= w.Block && b.Ptr < w.Block + (nint)readable) overlay[b.Ptr - w.Block] = b.Saved;
         }
-        ScriptBlock? block = ScriptBlock.parse(new MemBlockReader(w.Block, size, overlay), size, out string error);
+        ScriptBlock? block = ScriptBlock.parse(new MemBlockReader(w.Block, readable, overlay), code_end, out string error);
         ulong print = fingerprint(w.Block);
 
         if (block is not null && listing_override < 0 && w.PcValid) {

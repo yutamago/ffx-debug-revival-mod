@@ -25,7 +25,6 @@ public static class D {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  IntToIntFn(int a);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  IntPtrToIntFn(int a, nint b);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  PtrPtrToIntFn(nint a, nint b);
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  PtrIntToIntFn(nint a, int b);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint PtrIntToPtrFn(nint a, int b);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  PtrToIntFn(nint a);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint PtrPtrUIntToUIntFn(nint a, nint b, uint c);
@@ -145,9 +144,6 @@ public static class Calls {
     public static FhCallHandle<D.UShortUIntToPtrFn> AtelGetSaveDicName => h<D.UShortUIntToPtrFn>(0x0086c430);
     /// <summary>cdecl (map, entrance, fade): warps when the event allows leaving the map.</summary>
     public static FhCallHandle<D.Int3Fn> AtelSetEventJump2 => h<D.Int3Fn>(0x0086ff40);
-    /// <summary>cdecl (name, mode) -> fd, 0 when the file doesn't exist; maps host0: names to the PC files.</summary>
-    public static FhCallHandle<D.PtrIntToIntFn> sceOpen => h<D.PtrIntToIntFn>(0x0062fa30);
-    public static FhCallHandle<D.IntToIntFn> sceClose => h<D.IntToIntFn>(0x0062f610);
     // ---- the PC file layer, which reads FFX_Data.vbf ----
     /// <summary>cdecl (n, dst, size) -> 0 when loaded: fopen of savesforviewer/n, which only exists inside the VBF.</summary>
     public static FhCallHandle<D.IntPtrUIntToIntFn> debugLoadForViewer => h<D.IntPtrUIntToIntFn>(0x00649040);
