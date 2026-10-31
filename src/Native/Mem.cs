@@ -1,15 +1,13 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: MIT
 
 namespace Yuta.DebugRevival.Native;
 
-/// <summary>FFX.exe's memory, addressed by ffx-decomp's symbols/ffx.sym VAs (image base 0x00400000).</summary>
+/// <summary>
+///     FFX.exe's memory, addressed by ffx-decomp's symbols/ffx.sym VAs (image base 0x00400000). The accessors are thin
+///     wrappers over Fahrenheit's <see cref="FhUtil.ptr_at{T}"/>, which takes the offset from the module base instead.
+/// </summary>
 public static unsafe class Mem {
     private const nint IMAGE_BASE = 0x00400000;
-
-    private static nint _base;
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
-    private static extern nint GetModuleHandleW(string? name);
 
     [DllImport("kernel32.dll")]
     private static extern nuint VirtualQuery(nint address, out MEMORY_BASIC_INFORMATION info, nuint length);
@@ -29,29 +27,19 @@ public static unsafe class Mem {
     private const uint PAGE_NOACCESS = 0x01;
     private const uint PAGE_GUARD = 0x100;
 
-    public static nint module_base {
-        get {
-            if (_base == 0) {
-                nint b = GetModuleHandleW("FFX.exe");
-                _base = b != 0 ? b : IMAGE_BASE;
-            }
-            return _base;
-        }
-    }
-
-    public static nint at(uint va) => module_base + ((nint)va - IMAGE_BASE);
-
-    /// <summary>The FhCallLocation offset of an ffx.sym address.</summary>
+    /// <summary>The module-base offset of an ffx.sym address, as FhUtil and FhCallLocation take it.</summary>
     public static nint off(uint va) => (nint)va - IMAGE_BASE;
 
-    public static byte   u8 (uint va) => *(byte*)at(va);
-    public static sbyte  i8 (uint va) => *(sbyte*)at(va);
-    public static uint   u32(uint va) => *(uint*)at(va);
-    public static int    i32(uint va) => *(int*)at(va);
-    public static float  f32(uint va) => *(float*)at(va);
+    public static nint at(uint va) => (nint)FhUtil.ptr_at<byte>(off(va));
 
-    public static void set_u8 (uint va, byte v)  => *(byte*)at(va) = v;
-    public static void set_u32(uint va, uint v)  => *(uint*)at(va) = v;
+    public static byte   u8 (uint va) => FhUtil.get_at<byte> (off(va));
+    public static sbyte  i8 (uint va) => FhUtil.get_at<sbyte>(off(va));
+    public static uint   u32(uint va) => FhUtil.get_at<uint> (off(va));
+    public static int    i32(uint va) => FhUtil.get_at<int>  (off(va));
+    public static float  f32(uint va) => FhUtil.get_at<float>(off(va));
+
+    public static void set_u8 (uint va, byte v) => FhUtil.set_at(off(va), v);
+    public static void set_u32(uint va, uint v) => FhUtil.set_at(off(va), v);
 
     public static bool readable(nint p, nint length) => p != 0 && length > 0 && readable_end(p, length) == p + length;
 

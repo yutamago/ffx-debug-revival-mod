@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT OR Apache-2.0
+# SPDX-License-Identifier: MIT
 # Pushing a tag such as v0.2.0 builds the mod and publishes a release with a zip
 # that unpacks straight into the Fahrenheit folder. A tag with a "-" (v0.2.0-alpha)
 # makes a prerelease.
@@ -14,6 +14,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: pwsh
 
     steps:
     - name: Checkout
@@ -25,16 +28,17 @@ jobs:
         dotnet-version: 10.0.x
 
     - name: Build
-      run: dotnet build -c Release -p:Version="${GITHUB_REF_NAME#v}" ffx-debug-revival.slnx
+      run: dotnet build -c Release -p:Version="$($env:GITHUB_REF_NAME -replace '^v', '')" ffx-debug-revival.slnx
 
     - name: Package
-      run: tools/package.sh "yuta.debugrevival-${GITHUB_REF_NAME}.zip"
+      run: dotnet run tools/package.cs -- "yuta.debugrevival-$env:GITHUB_REF_NAME.zip"
 
     - name: Publish
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        prerelease=""
-        case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
-        gh release create "$GITHUB_REF_NAME" "yuta.debugrevival-${GITHUB_REF_NAME}.zip" \
-          --verify-tag $prerelease --title "Debug Revival $GITHUB_REF_NAME" --notes-file .github/release-notes.md
+        $tag = $env:GITHUB_REF_NAME
+        $release = @('release', 'create', $tag, "yuta.debugrevival-$tag.zip", '--verify-tag',
+                     '--title', "Debug Revival $tag", '--notes-file', '.github/release-notes.md')
+        if ($tag.Contains('-')) { $release += '--prerelease' }
+        gh @release

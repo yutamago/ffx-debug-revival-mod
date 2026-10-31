@@ -1,6 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-    <!-- Prints the mod's disassembly of a script file in `ffx script disasm` format,
-         so tools/disasm-check.sh can compare it with the Rust disassembler. -->
+    <!-- Compares the mod's disassembler with ffx-decomp's `ffx script disasm` on every shipped script. -->
     <PropertyGroup>
         <OutputType>Exe</OutputType>
         <TargetFramework>net10.0</TargetFramework>
@@ -12,5 +11,6 @@
         <Compile Include="../../src/Script/Opcodes.cs" />
         <Compile Include="../../src/Script/Disassembler.cs" />
         <Compile Include="../../src/Script/NativeNames.cs" />
+        <None Include="../../src/Script/natives.tsv" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 </Project>

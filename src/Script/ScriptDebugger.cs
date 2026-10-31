@@ -1,6 +1,10 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: MIT
+
+using Fahrenheit.Atel;
 
 using Yuta.DebugRevival.Native;
+
+using AtelGlobals = Fahrenheit.FFX.Globals.Atel;
 
 namespace Yuta.DebugRevival.Script;
 
@@ -10,10 +14,21 @@ internal sealed unsafe class MemBlockReader(nint block, long size, IReadOnlyDict
     public byte u8(long offset) => overlay.TryGetValue(offset, out byte b) ? b : *(byte*)(block + (nint)offset);
 }
 
+/// <summary>One of a ctrl work's 4 breakpoint entries (ctrl +0x64, docs/research/script.md 1.2); Fahrenheit has no type for it.</summary>
+[StructLayout(LayoutKind.Explicit, Size = 0x10)]
+internal struct AtelBreakpoint {
+    [FieldOffset(0x0)] public int   id;     // >= 0 set, -1 free
+    [FieldOffset(0x4)] public uint  tag;
+    [FieldOffset(0x8)] public nint  ptr;    // the patched byte
+    [FieldOffset(0xe)] public byte  saved;  // the byte 0x40 replaced
+    [FieldOffset(0xf)] public byte  hit;
+}
+
 /// <summary>
 ///     The event-script debugger, built on the VM's own support (docs/research/script.md): ctrl work +8 is the
 ///     debugger state (0 run, 1 step, 2 one frame, 3 stopped) and +0x64 holds 4 breakpoints for opcode 0x40.
 ///     Game memory is touched only inside the <c>Atel_ExecCtrlWorks</c> hook, where no script is mid-instruction.
+///     Fahrenheit's Atel structs cover most of it; the ctrl work fields they don't name are read by offset below.
 /// </summary>
 public sealed unsafe class ScriptDebugger {
     private const uint BP_TAG = 0x56565244; // "DRVV" marks our entries
@@ -99,7 +114,7 @@ public sealed unsafe class ScriptDebugger {
         // Only the event update's own calls are filtered; nested runs from natives pass through.
         if (_run_depth == 0 && _in_pass && _step is { } s
          && Mem.u32(G.CurrentCtrlIdx) == (uint)s.ctrl
-         && *(nint*)Mem.at(G.ScriptContext) == ctrl_ptr(s.ctrl)) {
+         && AtelGlobals.current_controller == ctrl_ptr(s.ctrl)) {
             if (worker != s.worker || s.stepped) return 0; // the game's own "not runnable" result
             _step = s with { stepped = true };
             mode = 1;
@@ -119,8 +134,7 @@ public sealed unsafe class ScriptDebugger {
     /// <summary>Continues. The breakpoint it stopped on stays lifted until no worker stands on it, since an instruction that spans frames would stop again at once.</summary>
     public void resume(int c) => _commands.Enqueue(() => {
         foreach (Bp b in _our_bps.ToArray()) {
-            nint e = ctrl_ptr(b.Ctrl) + 0x64 + b.Slot * 0x10;
-            if (b.Ctrl == c && *(byte*)(e + 0xf) != 0) {
+            if (b.Ctrl == c && bp_entry(b.Ctrl, b.Slot)->hit != 0) {
                 clear_bp(b);
                 _our_bps.Remove(b);
                 _rearm.Add(b);
@@ -144,14 +158,14 @@ public sealed unsafe class ScriptDebugger {
     /// <summary>Sets or clears a breakpoint. <paramref name="print"/> fingerprints the listing the click came from, so a click on an outdated listing is refused.</summary>
     public void toggle_breakpoint(int c, nint block, ulong print, uint code_offset) => _commands.Enqueue(() => {
         if (c != 0) { Status.refused("breakpoints work only in the event's scripts (ctrl 0)"); return; }
-        nint ctrl = ctrl_ptr(c);
-        if ((*(byte*)ctrl & 1) == 0 || *(nint*)(ctrl + 0x48) != block || fingerprint(block) != print) {
+        AtelWorkerController* ctrl = ctrl_ptr(c);
+        if (!in_use(ctrl) || ctrl_block(ctrl) != block || fingerprint(block) != print) {
             Status.refused("the script changed; click again in the new listing");
             return;
         }
-        uint code_len = *(uint*)block;
-        if (code_offset >= code_len) { Status.refused("outside the event's code"); return; }
-        nint ptr = block + (nint)(*(uint*)(block + 0x30)) + (nint)code_offset;
+        AtelScriptChunk* chunk = (AtelScriptChunk*)block;
+        if (code_offset >= chunk->code_length) { Status.refused("outside the event's code"); return; }
+        nint ptr = block + (nint)chunk->offset_code + (nint)code_offset;
 
         int existing = _our_bps.FindIndex(b => b.Ctrl == c && b.Ptr == ptr);
         if (existing >= 0) {
@@ -181,11 +195,21 @@ public sealed unsafe class ScriptDebugger {
         Status.done("breakpoints cleared");
     });
 
-    private static nint ctrl_ptr(int c) => Mem.at(G.AtelCtrlWorks) + c * G.CtrlWorkSize;
+    private static AtelWorkerController* ctrl_ptr(int c) => AtelGlobals.controllers + c;
+
+    // Ctrl work fields AtelWorkerController doesn't name (docs/research/script.md 1.2).
+    private static bool  in_use     (AtelWorkerController* ctrl) => (*(byte*)ctrl & 1) != 0;  // +0 bit 0
+    private static byte* state      (AtelWorkerController* ctrl) => (byte*)ctrl + 8;          // the debugger state
+    private static int   total      (AtelWorkerController* ctrl) => *(ushort*)((nint)ctrl + 0x10); // with the 0x30-byte ones
+    private static nint  ctrl_block (AtelWorkerController* ctrl) => *(nint*)((nint)ctrl + 0x48); // the event's block
+    private static nint  storage_0  (AtelWorkerController* ctrl) => *(nint*)((nint)ctrl + 0x2c);
+    private static nint  storage_1  (AtelWorkerController* ctrl) => *(nint*)((nint)ctrl + 0x30);
+    private static bool  storage_3_callback(AtelWorkerController* ctrl) => *(nint*)((nint)ctrl + 0x54) != 0;
+    private static AtelBreakpoint* bp_entry(int c, int slot) => (AtelBreakpoint*)((nint)ctrl_ptr(c) + 0x64) + slot;
 
     private static void set_state(int c, byte v) {
         if (c < 0 || c >= G.CtrlWorkCount) return;
-        *(byte*)(ctrl_ptr(c) + 8) = v;
+        *state(ctrl_ptr(c)) = v;
     }
 
     /// <summary>Identifies a loaded script by the event id and the block's header.</summary>
@@ -199,15 +223,14 @@ public sealed unsafe class ScriptDebugger {
 
     /// <summary>Takes a free slot of the ctrl work's table and patches 0x40 in; returns the slot.</summary>
     private int? arm(Bp b) {
-        nint ctrl = ctrl_ptr(b.Ctrl);
         for (int slot = 0; slot < 4; slot++) {
-            nint e = ctrl + 0x64 + slot * 0x10;
-            if (*(int*)e >= 0) continue;
-            *(uint*)(e + 4)   = BP_TAG;
-            *(nint*)(e + 8)   = b.Ptr;
-            *(byte*)(e + 0xe) = b.Saved;
-            *(byte*)(e + 0xf) = 0;
-            *(int*)e = slot;
+            AtelBreakpoint* e = bp_entry(b.Ctrl, slot);
+            if (e->id >= 0) continue;
+            e->tag   = BP_TAG;
+            e->ptr   = b.Ptr;
+            e->saved = b.Saved;
+            e->hit   = 0;
+            e->id    = slot;
             *(byte*)b.Ptr = 0x40;
             _our_bps.Add(b with { Slot = slot });
             _bp_version++;
@@ -218,19 +241,20 @@ public sealed unsafe class ScriptDebugger {
 
     /// <summary>Restores the byte and frees the entry, if the entry is still ours.</summary>
     private static void clear_bp(Bp b) {
-        nint e = ctrl_ptr(b.Ctrl) + 0x64 + b.Slot * 0x10;
-        bool ours = *(int*)e >= 0 && *(uint*)(e + 4) == BP_TAG && *(nint*)(e + 8) == b.Ptr;
-        if (!ours) return;
+        AtelBreakpoint* e = bp_entry(b.Ctrl, b.Slot);
+        if (!ours(e, b)) return;
         if (*(byte*)b.Ptr == 0x40) *(byte*)b.Ptr = b.Saved;
-        *(int*)e = -1;
-        *(uint*)(e + 4) = 0;
-        *(byte*)(e + 0xf) = 0;
+        e->id  = -1;
+        e->tag = 0;
+        e->hit = 0;
     }
+
+    private static bool ours(AtelBreakpoint* e, Bp b) => e->id >= 0 && e->tag == BP_TAG && e->ptr == b.Ptr;
 
     /// <summary>Whether the event still runs the script a breakpoint was set in.</summary>
     private static bool same_script(Bp b) {
-        nint ctrl = ctrl_ptr(b.Ctrl);
-        return (*(byte*)ctrl & 1) != 0 && *(nint*)(ctrl + 0x48) == b.Block && fingerprint(b.Block) == b.Print;
+        AtelWorkerController* ctrl = ctrl_ptr(b.Ctrl);
+        return in_use(ctrl) && ctrl_block(ctrl) == b.Block && fingerprint(b.Block) == b.Print;
     }
 
     /// <summary>
@@ -240,10 +264,8 @@ public sealed unsafe class ScriptDebugger {
     private void validate_breakpoints() {
         for (int i = _our_bps.Count - 1; i >= 0; i--) {
             Bp b = _our_bps[i];
-            nint e = ctrl_ptr(b.Ctrl) + 0x64 + b.Slot * 0x10;
             bool same = same_script(b);
-            bool entry_ours = *(int*)e >= 0 && *(uint*)(e + 4) == BP_TAG && *(nint*)(e + 8) == b.Ptr;
-            if (same && entry_ours) continue;
+            if (same && ours(bp_entry(b.Ctrl, b.Slot), b)) continue;
             if (same && *(byte*)b.Ptr == 0x40) *(byte*)b.Ptr = b.Saved;
             _our_bps.RemoveAt(i);
             _bp_version++;
@@ -257,36 +279,18 @@ public sealed unsafe class ScriptDebugger {
         for (int i = _rearm.Count - 1; i >= 0; i--) {
             Bp b = _rearm[i];
             CtrlSnap? cs = ctrl(b.Ctrl);
-            nint code = b.Block + (nint)(*(uint*)(b.Block + 0x30));
+            nint code = b.Block + (nint)((AtelScriptChunk*)b.Block)->offset_code;
             if (cs is null || cs.Workers.Any(w => w.PcValid && w.Block == b.Block && code + (nint)w.Pc == b.Ptr)) continue;
             _rearm.RemoveAt(i);
             if (*(byte*)b.Ptr == b.Saved) arm(b);
         }
     }
 
-    private static int[] class_sizes(nint ctrl, out int actors, out int total) {
-        actors = *(ushort*)(ctrl + 0x0c);
-        total  = *(ushort*)(ctrl + 0x10);
-        int n5b8 = *(ushort*)(ctrl + 0x14), n558 = *(ushort*)(ctrl + 0x16), n2e8 = *(ushort*)(ctrl + 0x18);
-        int nb58 = Math.Max(0, actors - n558 - n2e8 - n5b8);
-        return [ nb58, n558, n5b8, n2e8 ];
-    }
-
-    /// <summary>Byte offset of worker <paramref name="i"/> from ctrl+0x1c's first worker (AtelGetBasicWork's layout).</summary>
-    private static long worker_offset(int[] counts, int i) {
-        int[] sizes = [ 0xb58, 0x558, 0x5b8, 0x2e8 ];
-        long off = 0;
-        for (int k = 0; k < 4; k++) {
-            if (i < counts[k]) return off + (long)i * sizes[k];
-            off += (long)counts[k] * sizes[k];
-            i -= counts[k];
-        }
-        return off + (long)i * 0x30;
-    }
-
+    /// <summary>The index of a worker's header in its block's u32 table at +0x38; -1 if not found.</summary>
     private static int local_index(nint block, nint header) {
         if (block == 0 || header == 0) return -1;
-        int n = *(ushort*)(block + 0x34);
+        // Fahrenheit's script_header_offsets reads the table as u16; AtelGetIndexWork reads u32.
+        int n = ((AtelScriptChunk*)block)->script_num;
         for (int w = 0; w < n; w++) {
             if (block + (nint)(*(uint*)(block + 0x38 + 4 * w)) == header) return w;
         }
@@ -294,71 +298,74 @@ public sealed unsafe class ScriptDebugger {
     }
 
     private CtrlSnap snapshot_ctrl(int c) {
-        nint ctrl = ctrl_ptr(c);
-        bool in_use = (*(byte*)ctrl & 1) != 0;
-        nint first = *(nint*)(ctrl + 0x1c);
+        AtelWorkerController* ctrl = ctrl_ptr(c);
+        bool used = in_use(ctrl);
+        // worker(0) is the first worker (+0x1c), whatever the class counts.
+        nint first = (nint)ctrl->worker(0);
         BreakpointSnap[] bps = new BreakpointSnap[4];
         for (int s = 0; s < 4; s++) {
-            nint e = ctrl + 0x64 + s * 0x10;
-            bps[s] = new BreakpointSnap(s, *(int*)e, *(nint*)(e + 8), *(byte*)(e + 0xe), *(byte*)(e + 0xf));
+            AtelBreakpoint* e = bp_entry(c, s);
+            bps[s] = new BreakpointSnap(s, e->id, e->ptr, e->saved, e->hit);
         }
-        if (!in_use || first == 0) {
-            return new CtrlSnap(c, in_use, *(byte*)(ctrl + 8), 0, 0, 0, [], bps);
+        int actors = ctrl->runnable_script_count;
+        // worker() wraps a negative 0xb58 count around; the game never sets counts like that.
+        bool counts_ok = actors >= ctrl->count_0x5b8 + ctrl->count_0x558 + ctrl->count_0x2e8;
+        if (!used || first == 0 || !counts_ok) {
+            return new CtrlSnap(c, used, *state(ctrl), 0, 0, 0, [], bps);
         }
 
-        int[] counts = class_sizes(ctrl, out int actors, out int total);
-        total = Math.Min(total, 512);
-        List<WorkerSnap> workers = new(total);
-        for (int i = 0; i < total; i++) {
-            nint w = first + (nint)worker_offset(counts, i);
-            workers.Add(snapshot_worker(i, w, i < actors));
+        int count = Math.Min(total(ctrl), 512);
+        List<WorkerSnap> workers = new(count);
+        for (int i = 0; i < count; i++) {
+            workers.Add(snapshot_worker(i, ctrl->worker(i), i < actors));
         }
-        return new CtrlSnap(c, true, *(byte*)(ctrl + 8), (ushort)actors, (ushort)total, *(nint*)(ctrl + 0x48), [ .. workers ], bps);
+        return new CtrlSnap(c, true, *state(ctrl), (ushort)actors, (ushort)count, ctrl_block(ctrl), [ .. workers ], bps);
     }
 
-    private static WorkerSnap snapshot_worker(int i, nint w, bool has_levels) {
-        nint header = *(nint*)w;
-        nint block  = *(nint*)(w + 4);
-        ushort kind = header != 0 ? *(ushort*)header : (ushort)0;
+    private static WorkerSnap snapshot_worker(int i, AtelBasicWorker* w, bool has_levels) {
+        nint header = (nint)w->script_header;
+        nint block  = (nint)w->script_chunk;
+        ushort kind = header != 0 ? w->script_header->script_type : (ushort)0;
         int local   = local_index(block, header);
         if (!has_levels) {
-            return new WorkerSnap(i, w, block, local, kind, 0, 0, 0, false, 0, false, 0, [], [], [], 0, 0, 0, [], []);
+            return new WorkerSnap(i, (nint)w, block, local, kind, 0, 0, 0, false, 0, false, 0, [], [], [], 0, 0, 0, [], []);
         }
 
         int nlev = kind is 5 or 6 ? 2 : 9;
-        byte level = *(byte*)(w + 0x32);
-        nint L = w + 0x12c + Math.Min(level, (byte)(nlev - 1)) * 0x4c;
-        nint code = block != 0 ? block + (nint)(*(uint*)(block + 0x30)) : 0;
-        nint pc = *(nint*)(L + 0x18);
-        uint code_len = block != 0 ? *(uint*)block : 0;
+        byte level = w->current_thread_priority;
+        AtelWorkThread* L = &w->threads[0] + Math.Min(level, (byte)(nlev - 1));
+        nint code = block != 0 ? (nint)w->code_ptr : 0;
+        nint pc = (nint)L->pc;
+        uint code_len = block != 0 ? w->script_chunk->code_length : 0;
         bool pc_valid = code != 0 && pc >= code && pc < code + (nint)code_len + 0x10000;
 
-        int depth = Math.Clamp((int)*(sbyte*)(L + 0x1d), 0, 3);
+        int depth = Math.Clamp((int)(sbyte)L->stack_depth, 0, 3);
         CallFrame[] calls = new CallFrame[depth];
-        for (int k = 0; k < depth; k++) calls[k] = new CallFrame(*(ushort*)(L + 0x10 + 2 * k), *(uint*)(L + 4 * k));
+        for (int k = 0; k < depth; k++) calls[k] = new CallFrame((ushort)L->script_idx_stack[k], (uint)L->script_offset_stack[k]);
 
         int[] iregs = new int[4];
-        for (int k = 0; k < 4; k++) iregs[k] = *(int*)(w + 0x48 + 4 * k);
+        for (int k = 0; k < 4; k++) iregs[k] = w->reg_int[k];
         float[] fregs = new float[10];
-        for (int k = 0; k < 10; k++) fregs[k] = *(float*)(w + 0x58 + 4 * k);
+        for (int k = 0; k < 10; k++) fregs[k] = w->reg_float[k];
 
-        int sp = Math.Clamp(*(int*)(w + 0xc4), 0, MAX_STACK);
+        int sp = Math.Clamp(w->stack.size, 0, MAX_STACK);
         var stack = new (uint, byte)[sp];
-        for (int k = 0; k < sp; k++) stack[k] = (*(uint*)(w + 0xc8 + 4 * k), *(byte*)(w + 0xc4 + 0x54 + k));
+        Span<int> values = w->stack.values.as_int();
+        for (int k = 0; k < sp; k++) stack[k] = ((uint)values[k], (byte)w->stack.types[k]);
 
         List<SignalSnap> sigs = [];
-        nint s = *(nint*)(w + 0x80);
-        for (int n = 0; s != 0 && n < 64; n++, s = *(nint*)s) {
-            byte ls = *(byte*)(s + 0x0e);
-            sigs.Add(new SignalSnap(*(ushort*)(s + 8), *(ushort*)(s + 0xa), *(ushort*)(s + 0xc), ls & 0xf, (ls >> 4) & 7, *(byte*)(s + 0x0f)));
+        AtelSignal* s = w->pending_signal_queue;
+        for (int n = 0; s != null && n < 64; n++, s = s->ptr_next) {
+            // State is bits 4-6 of the flags byte; process_status is bits 4-7.
+            sigs.Add(new SignalSnap(s->entry_point, s->idx_work_src, s->idx_work_tgt, s->priority, s->process_status & 7, (byte)s->state));
         }
 
         return new WorkerSnap(
-            i, w, block, local, kind,
-            *(ushort*)(w + 0x2c), level, *(ushort*)(w + 0x34), true,
+            i, (nint)w, block, local, kind,
+            w->entry_point_idx, level, w->__0x34, true,
             pc_valid ? (uint)(pc - code) : 0, pc_valid,
-            *(byte*)(L + 0x1f), calls, iregs, fregs,
-            *(uint*)(L + 0x20), *(uint*)(L + 0x24), *(float*)(L + 0x28),
+            L->wait_state, calls, iregs, fregs,
+            (uint)L->reg_x, (uint)L->reg_y, L->reg_a,
             stack, [ .. sigs ]);
     }
 
@@ -370,16 +377,18 @@ public sealed unsafe class ScriptDebugger {
 
         // Inside a JSR the PC is in the callee's code, a 0x30-byte namespace worker.
         int local = listing_override >= 0 ? listing_override : w.LocalIndex;
-        long size = Mem.readable_end(w.Block, 0x400000) - w.Block;
-        if (size <= 0x38) { listing = null; variables = null; return; }
-        // The last worker's code runs to the block's end; cap it.
-        size = Math.Min(size, (long)*(uint*)(w.Block + 0x30) + *(uint*)w.Block + 0x10000);
+        long readable = Mem.readable_end(w.Block, 0x400000) - w.Block;
+        if (readable <= 0x38) { listing = null; variables = null; return; }
+        // The last worker's code runs to the block's end, so cap that, but not the reader: the worker tables can sit
+        // well past the code.
+        AtelScriptChunk* chunk = (AtelScriptChunk*)w.Block;
+        long code_end = Math.Min(readable, (long)chunk->offset_code + chunk->code_length + 0x10000);
 
         Dictionary<long, byte> overlay = [];
         foreach (BreakpointSnap b in cs.Breakpoints) {
-            if (b.Id >= 0 && b.Ptr >= w.Block && b.Ptr < w.Block + (nint)size) overlay[b.Ptr - w.Block] = b.Saved;
+            if (b.Id >= 0 && b.Ptr >= w.Block && b.Ptr < w.Block + (nint)readable) overlay[b.Ptr - w.Block] = b.Saved;
         }
-        ScriptBlock? block = ScriptBlock.parse(new MemBlockReader(w.Block, size, overlay), size, out string error);
+        ScriptBlock? block = ScriptBlock.parse(new MemBlockReader(w.Block, readable, overlay), code_end, out string error);
         ulong print = fingerprint(w.Block);
 
         if (block is not null && listing_override < 0 && w.PcValid) {
@@ -410,8 +419,8 @@ public sealed unsafe class ScriptDebugger {
     private static readonly string[] TYPES   = [ "u8", "i8", "u16", "i16", "u32", "i32", "f32", "?7" ];
 
     private VarSnap[] read_variables(CtrlSnap cs, WorkerSnap w, ScriptBlock block, int local) {
-        nint ctrl   = ctrl_ptr(cs.Index);
-        nint header = w.Block + (nint)block.Workers[local].Header;
+        AtelWorkerController* ctrl = ctrl_ptr(cs.Index);
+        AtelScriptHeader* header = (AtelScriptHeader*)(w.Block + (nint)block.Workers[local].Header);
         int  n      = Math.Min(block.variable_count(local), 512);
         VarSnap[] vars = new VarSnap[n];
         for (int i = 0; i < n; i++) {
@@ -424,13 +433,13 @@ public sealed unsafe class ScriptDebugger {
             int storage = (int)((word >> 25) & 7);
             uint offset = word & 0xffffff;
             nint base_ = storage switch {
-                0 => *(nint*)(ctrl + 0x2c),
-                1 => *(nint*)(ctrl + 0x30),
-                2 => w.Block + (nint)(*(uint*)(header + 0x28)),
-                3 => *(nint*)(ctrl + 0x54) != 0 ? 0 : w.Block + (nint)(*(uint*)(header + 0x2c)),
-                4 => w.Block + (nint)(*(uint*)(header + 0x30)),
-                5 => w.Ptr + 0x48,
-                6 => w.Block + (nint)(*(uint*)(w.Block + 0x20)),
+                0 => storage_0(ctrl),
+                1 => storage_1(ctrl),
+                2 => w.Block + (nint)header->offset_data,
+                3 => storage_3_callback(ctrl) ? 0 : w.Block + (nint)header->offset_priv_data,
+                4 => w.Block + (nint)header->offset_shared_data,
+                5 => (nint)(&((AtelBasicWorker*)w.Ptr)->reg_int),
+                6 => w.Block + (nint)((AtelScriptChunk*)w.Block)->offset_event_data,
                 _ => 0,
             };
             string value;

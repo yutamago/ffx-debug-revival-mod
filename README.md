@@ -45,7 +45,8 @@ the sound. With the F10/F11 box ticked, those keys toggle the two.
 
 ### Map jump
 
-The list holds the developers' internal map names. Maps in red would crash or
+The list holds the developers' internal map names, with the place name the
+save screen shows, in your game's language, where the map has one. Maps in red would crash or
 freeze the game, because the PC version lacks their script, so the mod refuses
 them. Map 399 sends the game back to the title screen; the mod asks first. The
 entrance slider shows how many entrances the map has. Jumping out of story
@@ -53,11 +54,17 @@ order can break progression, and some maps may still get stuck if the story
 isn't where their script expects. **Model viewer** turns the debug flag on
 and goes to grid00, the developers' model viewer map.
 
+About 60 maps, mostly the developers' test maps, have no text in your
+language. Without the mod their first message crashes the game; with it they
+show their original Japanese text. A few kanji that only the Japanese version
+loads show as `？`.
+
 ### Developer saves
 
 `FFX_Data` holds about 110 saves the developers used to jump into each part of
-the story (the Basic debug panel's "Game Section"). Loading one replaces the
-running game and warps to its map. Your save files stay as they are until you
+the story (the Basic debug panel's "Game Section"). The list names each
+one by its place and story progress. Loading one replaces the running game
+and warps to its map. Your save files stay as they are until you
 save.
 
 ## Safety
@@ -85,17 +92,27 @@ save.
 dotnet build -c Release ffx-debug-revival.slnx   # artifacts/deploy/rel/mods/yuta.debugrevival/
 ```
 
-`tools/package.sh <out.zip>` zips the build the way a release ships it. Pushing
-a tag such as `v0.2.0` makes GitHub build and publish a release; a tag with a
-`-` (`v0.2.0-alpha`) makes a prerelease.
+The tools are C# scripts that need only the .NET 10 SDK, and run the same on
+Windows, Linux and macOS (CI builds them on all three):
 
-`tools/disasm-check.sh` checks the disassembler against ffx-decomp's
-`ffx script disasm` on every shipped script. `tools/gen-natives.py`
-regenerates `src/Script/natives.tsv`, the native function names in the
-disassembly, from `FFX.exe` and ffx-decomp's `symbols/ffx.sym`. Those names
-include Fahrenheit's, used with their permission.
+- `dotnet run tools/package.cs -- <out.zip>` zips the build the way a release
+  ships it. Pushing a tag such as `v0.2.0` makes GitHub build and publish a
+  release; a tag with a `-` (`v0.2.0-alpha`) makes a prerelease.
+- `dotnet run --project tools/DisasmCheck -c Release -- [max]` checks the
+  disassembler against ffx-decomp's `ffx script disasm` on every shipped
+  script (needs `FFX_GAME_DIR` and `FFX_CLI`, the path to ffx-decomp's `ffx`).
+- `dotnet run tools/gen-natives.cs -- <FFX.exe> <ffx.sym>` rewrites
+  `src/Script/natives.tsv`, the native function names in the disassembly,
+  from `FFX.exe` and ffx-decomp's `symbols/ffx.sym`. Those names include
+  Fahrenheit's, used with their permission.
+- `dotnet run tools/gen-map-table.cs` rewrites `src/Features/maps.tsv`, the
+  entrance count of every map (needs `FFX_GAME_DIR` and `FFX_CLI`).
+
+The generators write their table themselves rather than to a shell redirect,
+which in PowerShell can change the encoding and line endings. Give a path as
+the last argument to write elsewhere, or `-` for the console.
 
 ## License
 
-MIT OR Apache-2.0, at your option. See `THIRD-PARTY-NOTICES` for the files
+MIT, see `LICENSE`. See `THIRD-PARTY-NOTICES` for the files
 taken from the Fahrenheit mod template.

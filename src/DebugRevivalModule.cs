@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: MIT
 
 using Yuta.DebugRevival.Features;
 using Yuta.DebugRevival.Native;
@@ -14,6 +14,7 @@ public sealed class DebugRevivalModule : FhModule {
     private TweakPanels?    _panels;
     private BattleDebug?    _battle;
     private FieldTools?     _field;
+    private JapaneseText?   _jp_text;
     private DebugLog?       _log;
     private Guards?         _guards;
     private DebugFlag?      _flag;
@@ -23,18 +24,19 @@ public sealed class DebugRevivalModule : FhModule {
 
     public override bool init(FhModContext mod_context, FileStream global_state_file) {
         NativeNames names = NativeNames.parse(resource("natives.tsv"));
-        Dictionary<int, int> entrances = FieldTools.parse_entrances(resource("maps.tsv"));
+        Dictionary<int, FieldTools.MapInfo> map_info = FieldTools.parse_map_table(resource("maps.tsv"));
 
         DirectoryInfo resources = mod_context.Paths.ResourcesDir;
         if (!resources.Exists) resources.Create();
         string font_path = Path.Combine(resources.FullName, "debugfont.generated.tga");
 
         _guards  = new Guards(_logger);
-        _flag    = new DebugFlag();
+        _flag    = new DebugFlag(_guards);
         _scripts = new ScriptDebugger(_logger, names);
         _panels  = new TweakPanels(_guards, _flag);
         _battle  = new BattleDebug();
-        _field   = new FieldTools(_guards, _flag, entrances);
+        _field   = new FieldTools(_logger, _guards, _flag, map_info);
+        _jp_text = new JapaneseText(_logger);
         _log     = new DebugLog();
         _gu      = new GuToolkit(_flag);
         _gu_renderer = new GuRenderer(_gu, font_path);
@@ -48,6 +50,8 @@ public sealed class DebugRevivalModule : FhModule {
         warn_unless(_scripts.init(this), "script debugger");
         warn_unless(_battle.init(this),  "battle status line");
         warn_unless(_field.init(this),   "noclip and developer saves");
+        _field.shows_builtin_text = _jp_text.init(this);
+        warn_unless(_field.shows_builtin_text, "Japanese text for maps without text in the game's language");
         warn_unless(_log.init(this),     "debug log");
         warn_unless(_gu.init(this),      "PS2 debug menu");
         _flag.hooks_ok = _flag.init(this);

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: MIT
 
 using Yuta.DebugRevival.Features;
 using Yuta.DebugRevival.Native;
@@ -304,12 +304,14 @@ public sealed class MainWindow(
             ImGui.SameLine();
             ImGui.Checkbox("Test maps", ref _show_test_maps);
             ImGui.SetNextItemWidth(320);
-            if (ImGui.BeginCombo("Map", $"{_map}: {chosen?.Name}")) {
+            ImGui.SetNextItemWidth(420);
+            if (ImGui.BeginCombo("Map", chosen is null ? $"{_map}" : map_label(chosen))) {
                 foreach (FieldTools.MapEntry m in maps) {
                     if (!_show_test_maps && is_test(m.Name)) continue;
                     if (_map_filter.Length > 0 && !m.Name.Contains(_map_filter, StringComparison.OrdinalIgnoreCase)
+                     && !m.Title.Contains(_map_filter, StringComparison.OrdinalIgnoreCase)
                      && !m.Id.ToString(CultureInfo.InvariantCulture).StartsWith(_map_filter, StringComparison.Ordinal)) continue;
-                    string label = risk_text(m.Risk) is string r ? $"{m.Id,3}: {m.Name}  ({r})" : $"{m.Id,3}: {m.Name}";
+                    string label = risk_text(m.Risk) is string r ? $"{map_label(m)}  ({r})" : map_label(m);
                     if (m.Risk != FieldTools.JumpRisk.None) ImGui.PushStyleColor(ImGuiCol.Text, RED);
                     if (ImGui.Selectable($"{label}##m{m.Id}", m.Id == _map)) { _map = m.Id; _entrance = 0; }
                     if (m.Risk != FieldTools.JumpRisk.None) ImGui.PopStyleColor();
@@ -353,9 +355,21 @@ public sealed class MainWindow(
         ImGui.SeparatorText("Developer saves");
         Txt.W("Saves the developers used to start each part of the story. Loading one replaces the running game and "
             + "takes you to its map. Your own save files stay as they are until you save.");
-        ImGui.SetNextItemWidth(120);
-        ImGui.InputInt("Section", ref _viewer_save);
-        _viewer_save = Math.Clamp(_viewer_save, 1, FieldTools.VIEWER_SAVE_COUNT);
+        FieldTools.DevSave[]? saves = field.dev_saves;
+        if (saves is { Length: > 0 }) {
+            FieldTools.DevSave? picked = saves.FirstOrDefault(d => d.Number == _viewer_save);
+            ImGui.SetNextItemWidth(420);
+            if (ImGui.BeginCombo("Save", picked is null ? $"{_viewer_save}" : dev_save_label(picked))) {
+                foreach (FieldTools.DevSave d in saves) {
+                    if (ImGui.Selectable($"{dev_save_label(d)}##ds{d.Number}", d.Number == _viewer_save)) _viewer_save = d.Number;
+                }
+                ImGui.EndCombo();
+            }
+        } else {
+            ImGui.SetNextItemWidth(120);
+            ImGui.InputInt("Section", ref _viewer_save);
+            _viewer_save = Math.Clamp(_viewer_save, 1, FieldTools.VIEWER_SAVE_COUNT);
+        }
         ImGui.SameLine();
         if (ImGui.Button("Load")) field.load_viewer_save(_viewer_save);
         ImGui.SameLine();
@@ -367,10 +381,18 @@ public sealed class MainWindow(
 
     private string map_name(int id) => map_entry(id)?.Name ?? "";
 
+    private static string map_label(FieldTools.MapEntry m) => m.Title.Length > 0 ? $"{m.Id,3}: {m.Name}  {m.Title}" : $"{m.Id,3}: {m.Name}";
+
+    private string dev_save_label(FieldTools.DevSave d) {
+        string place = d.Title.Length > 0 ? d.Title : map_name(d.Map);
+        return $"{d.Number,3}: {place}  (story {d.Story})";
+    }
+
     private static string? risk_text(FieldTools.JumpRisk r) => r switch {
         FieldTools.JumpRisk.Crash  => "crashes the game",
         FieldTools.JumpRisk.Freeze => "freezes the game",
         FieldTools.JumpRisk.Reset  => "returns to the title screen",
+        FieldTools.JumpRisk.NoText => "no text in your language: crashes if a message opens",
         _ => null,
     };
 
@@ -392,6 +414,9 @@ public sealed class MainWindow(
         bool capture = log.capture;
         if (ImGui.Checkbox("Capture", ref capture)) log.capture = capture;
         ImGui.SameLine();
+        bool engine = log.capture_engine;
+        if (ImGui.Checkbox("Engine messages", ref engine)) log.capture_engine = engine;
+        ImGui.SameLine();
         ImGui.Checkbox("Auto-scroll", ref _log_autoscroll);
         ImGui.SameLine();
         if (ImGui.Button("Clear")) log.clear();
@@ -400,7 +425,7 @@ public sealed class MainWindow(
         ImGui.InputTextWithHint("##logfilter", "filter", ref _log_filter, 128);
         ImGui.SameLine();
         Txt.D($"{log.total} lines");
-        Txt.Help("Messages the game's code still writes to the developers' console. The released game never shows them.");
+        Txt.Help("Messages the game's code still writes to the developers' console, and the game engine's own log. The released game never shows them.");
         if (ImGui.BeginChild("log", Vector2.Zero, ImGuiChildFlags.Borders, ImGuiWindowFlags.HorizontalScrollbar)) {
             foreach (string line in log.lines()) {
                 if (_log_filter.Length > 0 && !line.Contains(_log_filter, StringComparison.OrdinalIgnoreCase)) continue;
