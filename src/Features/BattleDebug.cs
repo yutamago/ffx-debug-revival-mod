@@ -17,6 +17,8 @@ public sealed unsafe class BattleDebug {
 
     // Fahrenheit's battle struct; the switches it names come from its BtlDebugFlags (Btl.debug), the rest by address.
     private static Btl* B => Fahrenheit.FFX.Globals.Battle.btl;
+    /// <summary>The battle's 0x1f actors (btlChrTop).</summary>
+    private static Chr* actors => Fahrenheit.FFX.Globals.Battle.player_characters;
     private static nint flag(bool* p) => (nint)p;
 
     public static readonly Toggle[] TOGGLES = [
@@ -118,18 +120,19 @@ public sealed unsafe class BattleDebug {
             values[i] = TOGGLES[i].IsU32 ? *(uint*)TOGGLES[i].Address : *(byte*)TOGGLES[i].Address;
         }
         List<ActorRow> rows = [];
-        nint top = *(nint*)Mem.at(G.BtlChrTop);
+        Chr* top = actors;
         sbyte status = battle_state;
-        if (top != 0 && status != 0) {
+        if (top != null && status != 0) {
             for (int i = 0; i < 0x1f; i++) {
-                nint a = top + i * G.ActorSize;
-                if (*(byte*)(a + 0xdc8) == 0) continue; // not taking part
-                rows.Add(new ActorRow(i, *(ushort*)(a + 0xe),
-                    *(int*)(a + 0x5d0), *(int*)(a + 0x594), *(int*)(a + 0x5d4), *(int*)(a + 0x598),
-                    *(byte*)(a + 0x5a8), *(byte*)(a + 0x5a9), *(byte*)(a + 0x5aa), *(byte*)(a + 0x5ab),
-                    *(byte*)(a + 0x5ac), *(byte*)(a + 0x5ad), *(byte*)(a + 0x5ae), *(byte*)(a + 0x5af),
-                    *(byte*)(a + 0x5bc), *(byte*)(a + 0x5bd), *(byte*)(a + 0x65c),
-                    *(ushort*)(a + 0x606), *(ushort*)(a + 0x616), *(byte*)(a + 0xdcc)));
+                Chr* a = top + i;
+                if (a->in_battle == 0) continue;
+                ref ChrRam r = ref a->ram;
+                rows.Add(new ActorRow(i, a->chr_id,
+                    r.hp, r.max_hp, r.mp, r.max_mp,
+                    r.strength, r.defense, r.magic, r.magic_defense,
+                    r.agility, r.luck, r.evasion, r.accuracy,
+                    r.limit_charge, r.limit_charge_max, r.ctb,
+                    (ushort)r.status_suffer, (ushort)r.status_suffer_extra, a->stat_death));
             }
         }
         snap = new Snapshot(status, values, [ .. rows ]);
@@ -157,11 +160,11 @@ public sealed unsafe class BattleDebug {
         Status.done((monsters ? "monsters" : "party") + (on ? " at 1 HP" : " at full HP"));
     });
 
-    /// <summary>Writes an actor field (i32 or u8) if the battle is still the same.</summary>
+    /// <summary>Writes an actor field (i32 or u8) at a byte offset into its <see cref="Chr"/>, if the battle is still the same.</summary>
     public void set_actor(int index, int offset, int value, bool is_byte) => GameThread.post("edit actor", () => {
-        nint top = *(nint*)Mem.at(G.BtlChrTop);
-        if (top == 0 || battle_state == 0) { Status.refused("the battle is over"); return; }
-        nint a = top + index * G.ActorSize + offset;
+        Chr* top = actors;
+        if (top == null || battle_state == 0) { Status.refused("the battle is over"); return; }
+        nint a = (nint)(top + index) + offset;
         if (is_byte) *(byte*)a = (byte)Math.Clamp(value, 0, 255);
         else *(int*)a = value;
     });
@@ -188,7 +191,7 @@ public sealed unsafe class BattleDebug {
         if (!FieldTools.jump_allowed()) { Status.refused("only while you control the player in the field"); return; }
         if (FieldTools.effect_active) { Status.refused("wait until the effect on screen has finished"); return; }
         Calls.void_fn(TO_ALL_CLEAR_MESSAGE_WINDOW).fnptr!();
-        Calls.MsBattleLabelExe.fnptr!(_picker_label, 0, 0);
+        Fahrenheit.FFX.FhCall.MsBattleLabelExe.fnptr!(_picker_label, 0, 0);
         if (B->battle_trigger == 2) Status.done("battle requested");
         else Status.refused("the game refused the battle");
     });

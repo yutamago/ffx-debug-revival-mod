@@ -9,10 +9,8 @@ public static class D {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  RetIntFn();
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint RetPtrFn();
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint IntPtrToPtrFn(int a, nint b);
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void Int3Fn(int a, int b, int c);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint ExecCtrlWorksFn(int from, int to);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint ScriptRunFn(nint worker, uint mode, uint callbacks);
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  BattleLabelExeFn(uint label, byte encount_type, byte transition);
 
     /// <summary>printf-style, 16 argument slots (FFX's debug prints are variadic cdecl).</summary>
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public unsafe delegate void PrintfFn(byte* fmt,
@@ -30,7 +28,6 @@ public static class D {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  IntPtrUIntToIntFn(int a, nint b, uint c);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  WinProcFn(nint win, int msg, int id);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint WindowCreateFn(int x, int y, int w, int h, int flags, nint proc);
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate ushort RetUShortFn();
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint UShortUIntToPtrFn(ushort a, uint b);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint Rect8Fn(uint a1, uint a2, uint a3, uint a4, uint a5, uint a6, uint a7, uint a8);
@@ -54,7 +51,10 @@ public static class D {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint TextureNameFn(int id, int nibbles, int index, int high, nint size);
 }
 
-/// <summary>Call handles. They are ref structs, so each property makes a fresh one.</summary>
+/// <summary>
+///     Call handles. They are ref structs, so each property makes a fresh one. Where Fahrenheit's FhCall has the
+///     function with the same signature the mod calls that directly; the ones here are missing there or typed differently.
+/// </summary>
 public static class Calls {
     private static FhCallHandle<T> h<T>(uint va) where T : Delegate => new(new FhCallLocation("FFX.exe", Mem.off(va)));
 
@@ -103,8 +103,6 @@ public static class Calls {
     public static FhCallHandle<D.RetIntFn> MsDebugGetFieldNum => h<D.RetIntFn>(0x007c5f50);
     /// <summary>cdecl (sys_names, out) -> out: "&lt;field&gt;_NN" of the picker's battle.</summary>
     public static FhCallHandle<D.IntPtrToPtrFn> MsGetBattleName => h<D.IntPtrToPtrFn>(0x007c5fc0);
-    /// <summary>cdecl (label, type, transition) -> -1: requests a battle (the debug combo's path).</summary>
-    public static FhCallHandle<D.BattleLabelExeFn> MsBattleLabelExe => h<D.BattleLabelExeFn>(0x00781c90);
     /// <summary>cdecl (): writes the battle debug status line into the TODaps buffer.</summary>
     public static FhCallHandle<D.VoidFn> MsBattleProcess_DebugStatus => h<D.VoidFn>(0x00792f20);
     /// <summary>cdecl (): clears the TODaps buffer (called from the message-window draws).</summary>
@@ -151,12 +149,13 @@ public static class Calls {
     public static FhCallHandle<D.ThisUIntUIntFn> TextUtil_resize => h<D.ThisUIntUIntFn>(0x006f6670);
 
     // ---- field ----
+    // Fahrenheit's handles, kept here until FieldTools calls them directly.
     /// <summary>cdecl () -> the current save-dictionary (place) id.</summary>
-    public static FhCallHandle<D.RetUShortFn> AtelGetSaveDic => h<D.RetUShortFn>(0x0086c410);
+    public static FhCallHandle<FhCall.d_AtelGetSaveDic> AtelGetSaveDic => FhCall.AtelGetSaveDic;
     /// <summary>cdecl (id, english) -> the place name, game-encoded.</summary>
     public static FhCallHandle<D.UShortUIntToPtrFn> AtelGetSaveDicName => h<D.UShortUIntToPtrFn>(0x0086c430);
     /// <summary>cdecl (map, entrance, fade): warps when the event allows leaving the map.</summary>
-    public static FhCallHandle<D.Int3Fn> AtelSetEventJump2 => h<D.Int3Fn>(0x0086ff40);
+    public static FhCallHandle<Fahrenheit.FFX.FhCall.d_AtelSetEventJump2> AtelSetEventJump2 => Fahrenheit.FFX.FhCall.AtelSetEventJump2;
     // ---- the PC file layer, which reads FFX_Data.vbf ----
     /// <summary>cdecl (n, dst, size) -> 0 when loaded: fopen of savesforviewer/n, which only exists inside the VBF.</summary>
     public static FhCallHandle<D.IntPtrUIntToIntFn> debugLoadForViewer => h<D.IntPtrUIntToIntFn>(0x00649040);
@@ -192,19 +191,15 @@ public static class Calls {
 
 /// <summary>Globals the mod reads or writes (ffx.sym addresses).</summary>
 public static class G {
-    // event-script VM
-    public const uint AtelCtrlWorks   = 0x01325ba0; // 7 x 0x238
-    public const int  CtrlWorkSize    = 0x238;
+    // event-script VM; the ctrl works themselves are Fahrenheit's Globals.Atel.controllers
     public const int  CtrlWorkCount   = 7;
     public const uint CurrentCtrlIdx  = 0x01326b30; // u32, the ctrl work Atel_ExecCtrlWorks is running
-    public const uint ScriptContext   = 0x01326b28; // AtelCtrlWork*, the current ctrl work (g_ScriptContext)
+    public const uint ScriptContext   = 0x01326b28; // AtelCtrlWork*, the current ctrl work (g_ScriptContext; Fahrenheit's Globals.Atel.current_controller)
 
     // tweak panels
     public const uint DebugMenuManager = 0x00cccab0; // ptr; +4 current mode (10 = none)
 
     // battle
-    public const uint BtlChrTop   = 0x011334d4; // ptr to 0x1f actors of 0xf90
-    public const int  ActorSize   = 0xf90;
     public const uint PickerField     = 0x00c44248; // i32
     public const uint PickerEncounter = 0x01139e44; // i32
 
