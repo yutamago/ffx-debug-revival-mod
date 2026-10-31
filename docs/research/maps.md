@@ -119,7 +119,7 @@ from the archive, the three constants from FFX.exe, and each .ebp. It writes
 
 ```bash
 FFX_GAME_DIR=<game dir> FFX_CLI=<ffx-decomp's ffx binary> \
-  dotnet run tools/gen-map-table.cs > src/Features/maps.tsv        # ~13 s
+  dotnet run tools/gen-map-table.cs        # rewrites src/Features/maps.tsv, ~13 s
 # --detail adds the map index per language (numbers only; for checking, not shipping)
 ```
 

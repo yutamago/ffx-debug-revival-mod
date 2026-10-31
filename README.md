@@ -85,7 +85,8 @@ save.
 dotnet build -c Release ffx-debug-revival.slnx   # artifacts/deploy/rel/mods/yuta.debugrevival/
 ```
 
-The tools are C# scripts that need only the .NET 10 SDK:
+The tools are C# scripts that need only the .NET 10 SDK, and run the same on
+Windows, Linux and macOS (CI builds them on all three):
 
 - `dotnet run tools/package.cs -- <out.zip>` zips the build the way a release
   ships it. Pushing a tag such as `v0.2.0` makes GitHub build and publish a
@@ -93,12 +94,16 @@ The tools are C# scripts that need only the .NET 10 SDK:
 - `dotnet run --project tools/DisasmCheck -c Release -- [max]` checks the
   disassembler against ffx-decomp's `ffx script disasm` on every shipped
   script (needs `FFX_GAME_DIR` and `FFX_CLI`, the path to ffx-decomp's `ffx`).
-- `dotnet run tools/gen-natives.cs -- <FFX.exe> <ffx.sym>` regenerates
+- `dotnet run tools/gen-natives.cs -- <FFX.exe> <ffx.sym>` rewrites
   `src/Script/natives.tsv`, the native function names in the disassembly,
   from `FFX.exe` and ffx-decomp's `symbols/ffx.sym`. Those names include
   Fahrenheit's, used with their permission.
-- `dotnet run tools/gen-map-table.cs` regenerates `src/Features/maps.tsv`, the
+- `dotnet run tools/gen-map-table.cs` rewrites `src/Features/maps.tsv`, the
   entrance count of every map (needs `FFX_GAME_DIR` and `FFX_CLI`).
+
+The generators write their table themselves rather than to a shell redirect,
+which in PowerShell can change the encoding and line endings. Give a path as
+the last argument to write elsewhere, or `-` for the console.
 
 ## License
 

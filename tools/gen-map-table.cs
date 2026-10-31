@@ -3,8 +3,9 @@
 // For every map (event) id: the number of entrances and whether a jump to it crashes or hangs FFX.exe (Steam HD, the
 // build in ffx-decomp's symbols/ffx.sym). Needs FFX_GAME_DIR and FFX_CLI (the `ffx` binary of ffx-decomp).
 //
-// usage: dotnet run tools/gen-map-table.cs > src/Features/maps.tsv
-//        dotnet run tools/gen-map-table.cs -- --detail   (adds the map index per language; not for shipping)
+// usage: dotnet run tools/gen-map-table.cs -- [out.tsv]   (default src/Features/maps.tsv, - for stdout)
+//        dotnet run tools/gen-map-table.cs -- --detail [out.tsv]   (adds the map index per language; not for
+//        shipping, so it defaults to stdout)
 //
 // Reason codes (docs/research/maps.md has the mechanism of each):
 //   no_name    module 0xc slot map*0x12 empty in cdrom.fnd: Cd_QueueRead copies a NULL name (crash)
@@ -19,6 +20,7 @@
 
 using System.Buffers.Binary;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 string game = Environment.GetEnvironmentVariable("FFX_GAME_DIR") ?? throw new Exception("set FFX_GAME_DIR");
@@ -29,6 +31,8 @@ const int EVENT_MODULE = 0xc, MAP_MODULE = 0x13, FILES_PER_EVENT = 0x12;
 // TkGetLang values AtelGetMapIndex 0x0086bd90 can use (>= 0x10 becomes 0): the PC languages.
 int[] LANGS = [ 0, 1, 2, 3, 4, 5, 9, 10, 11 ];
 bool detail = args.Contains("--detail");
+string? out_arg = args.FirstOrDefault(a => a != "--detail");
+string out_path = out_arg ?? (detail ? "-" : Path.Combine(Path.GetDirectoryName(this_file())!, "..", "src", "Features", "maps.tsv"));
 
 byte[] run(params string[] argv) {
     ProcessStartInfo psi = new(cli) { RedirectStandardOutput = true, RedirectStandardError = true };
@@ -137,7 +141,8 @@ byte[] eventid = cat("ffx_ps2/ffx/proj/event/header/eventid.bin");
 SortedSet<int> ids = [ .. Enumerable.Range(0, (int)(u32(eventid, 0) / 8)),
                        .. Enumerable.Range(0, (int)((ev_next - ev_first) / FILES_PER_EVENT)) ];
 
-TextWriter output = new StreamWriter(Console.OpenStandardOutput()) { NewLine = "\n" };
+// Written by the script, not a shell redirect, so the bytes are the same in every shell and OS.
+TextWriter output = new StreamWriter(out_path == "-" ? Console.OpenStandardOutput() : File.Create(out_path)) { NewLine = "\n" };
 output.WriteLine("# map_id\tentrances\tcrash_reason  (gen-map-table.cs; entrances -1: no table, the player lands on the "
           + "default record; empty reason: no known crash)");
 foreach (int m in ids) {
@@ -170,4 +175,6 @@ foreach (int m in ids) {
     if (m == reset_map && reason.Length == 0) reason = "soft_reset";
     output.WriteLine($"{m}\t{entrances}\t{reason}{extra}");
 }
-output.Flush();
+output.Dispose();
+
+static string this_file([CallerFilePath] string path = "") => path;
