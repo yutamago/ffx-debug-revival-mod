@@ -25,9 +25,7 @@ public static class D {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  IntToIntFn(int a);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  IntPtrToIntFn(int a, nint b);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  PtrPtrToIntFn(nint a, nint b);
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint PtrIntToPtrFn(nint a, int b);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  PtrToIntFn(nint a);
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint PtrPtrUIntToUIntFn(nint a, nint b, uint c);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void PtrPtrIntFn(nint a, nint b, int c);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  IntPtrUIntToIntFn(int a, nint b, uint c);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  WinProcFn(nint win, int msg, int id);
@@ -164,10 +162,6 @@ public static class Calls {
     public static FhCallHandle<D.IntPtrUIntToIntFn> debugLoadForViewer => h<D.IntPtrUIntToIntFn>(0x00649040);
     public static FhCallHandle<D.PtrPtrIntFn> fiosUnifyFilename => h<D.PtrPtrIntFn>(0x00679820);
     public static FhCallHandle<D.PtrToIntFn> fiosIsFileExist => h<D.PtrToIntFn>(0x006796f0);
-    /// <summary>cdecl (name, mode) -> stream. A missing file shows an error box and quits to the launcher, so check first.</summary>
-    public static FhCallHandle<D.PtrIntToPtrFn> fiosOpen => h<D.PtrIntToPtrFn>(0x00679730);
-    public static FhCallHandle<D.PtrPtrUIntToUIntFn> fiosRead => h<D.PtrPtrUIntToUIntFn>(0x00679800);
-    public static FhCallHandle<D.PtrToIntFn> fiosClose => h<D.PtrToIntFn>(0x00679510);
     /// <summary>cdecl (on): random encounters on/off (g_BattleEnable).</summary>
     public static FhCallHandle<D.IntFn> setBattleEnable => h<D.IntFn>(0x00782f70);
     /// <summary>cdecl () -> the field's "ignore collision" flag; hooked for noclip.</summary>

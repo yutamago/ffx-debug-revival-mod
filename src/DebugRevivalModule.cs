@@ -24,7 +24,7 @@ public sealed class DebugRevivalModule : FhModule {
 
     public override bool init(FhModContext mod_context, FileStream global_state_file) {
         NativeNames names = NativeNames.parse(resource("natives.tsv"));
-        Dictionary<int, int> entrances = FieldTools.parse_entrances(resource("maps.tsv"));
+        Dictionary<int, FieldTools.MapInfo> map_info = FieldTools.parse_map_table(resource("maps.tsv"));
 
         DirectoryInfo resources = mod_context.Paths.ResourcesDir;
         if (!resources.Exists) resources.Create();
@@ -35,7 +35,7 @@ public sealed class DebugRevivalModule : FhModule {
         _scripts = new ScriptDebugger(_logger, names);
         _panels  = new TweakPanels(_guards, _flag);
         _battle  = new BattleDebug();
-        _field   = new FieldTools(_logger, _guards, _flag, entrances);
+        _field   = new FieldTools(_logger, _guards, _flag, map_info);
         _jp_text = new JapaneseText(_logger);
         _log     = new DebugLog();
         _gu      = new GuToolkit(_flag);
