@@ -23,7 +23,9 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag, Dictionary<
     public const int VIEWER_SAVE_COUNT = 0x71;
 
     /// <summary>What a jump to a map would do instead of loading it (docs/research/maps.md).</summary>
-    public enum JumpRisk { None, Crash, Freeze, Reset }
+    /// <param name="NoText">The map has no text in the game's language, so its script shows the Japanese text built
+    /// into it, whose glyph pages a non-Japanese game never loads: the first message crashes (TOGetFontWidth).</param>
+    public enum JumpRisk { None, Crash, Freeze, Reset, NoText }
 
     public sealed record Snapshot(int EventId, bool JumpAllowed, bool FlagOn, uint Encounters, sbyte ExecFrames,
                                   int FreeCamType, bool PhotoPause, float FlySpeed, string Place);
@@ -93,20 +95,35 @@ public sealed unsafe class FieldTools(Guards guards, DebugFlag flag, Dictionary<
         else r = script_name(map) switch {
             -1 => JumpRisk.None,
             0 => JumpRisk.Crash,
-            nint name => file_exists(name) ? JumpRisk.None : JumpRisk.Freeze,
+            nint name => script_risk(Mem.cstr(name, 0x400)),
         };
         _risks[map] = r;
         return r;
     }
 
-    // sceOpen's own test ("/ffx_ps2/" + the name past "host0:/", unified, then fiosIsFileExist), without opening the
-    // file: opening and closing 400 files at once corrupted the game's heap.
-    private static bool file_exists(nint name) {
-        string path = "/ffx_ps2/" + Mem.cstr(name + 7, 0x3f0) + "\0";
-        byte[] bytes = Encoding.ASCII.GetBytes(path);
+    private static JumpRisk script_risk(string host_name) {
+        if (!file_exists("/ffx_ps2/" + host_name[Math.Min(7, host_name.Length)..])) return JumpRisk.Freeze;
+        return has_text(host_name) ? JumpRisk.None : JumpRisk.NoText;
+    }
+
+    // The loaders' own test (sceOpen maps "host0:/x" to "/ffx_ps2/x"): unify the path, then fiosIsFileExist.
+    private static bool file_exists(string path) {
+        byte[] bytes = Encoding.ASCII.GetBytes(path + "\0");
         byte* unified = stackalloc byte[0x400];
         fixed (byte* p = bytes) Calls.fiosUnifyFilename.fnptr!((nint)p, (nint)unified, 0x400);
         return (Calls.fiosIsFileExist.fnptr!((nint)unified) & 0xff) != 0;
+    }
+
+    // TKMallocAndReadEventMessage's path for the event's text in the game's language.
+    private static bool has_text(string script) {
+        int lang = Calls.TOGetFFXLang.fnptr!();
+        if (lang == 0) return true; // Japanese: the built-in text is the game's own
+        int cut = script.IndexOf("/event/obj/", StringComparison.Ordinal);
+        if (cut < 0) return true;
+        string[] parts = script[(cut + "/event/obj/".Length)..].Split('/');
+        if (parts.Length < 2) return true;
+        string dir = lang switch { 2 => "fr", 3 => "sp", 4 => "de", 5 => "it", 9 => "kr", 10 => "ch", _ => "us" };
+        return file_exists($"/ffx_ps2/ffx/master/new_{dir}pc/event/obj_ps3/{parts[0]}/{parts[1]}/{parts[1]}.bin");
     }
 
     /// <summary>Entrance counts per map, from maps.tsv (tools/gen-map-table.cs).</summary>

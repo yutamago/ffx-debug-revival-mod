@@ -371,6 +371,7 @@ public sealed class MainWindow(
         FieldTools.JumpRisk.Crash  => "crashes the game",
         FieldTools.JumpRisk.Freeze => "freezes the game",
         FieldTools.JumpRisk.Reset  => "returns to the title screen",
+        FieldTools.JumpRisk.NoText => "no text in your language: crashes if a message opens",
         _ => null,
     };
 
