@@ -45,7 +45,8 @@ the sound. With the F10/F11 box ticked, those keys toggle the two.
 
 ### Map jump
 
-The list holds the developers' internal map names. Maps in red would crash or
+The list holds the developers' internal map names, with the place name the
+save screen shows, in your game's language, where the map has one. Maps in red would crash or
 freeze the game, because the PC version lacks their script, so the mod refuses
 them. Map 399 sends the game back to the title screen; the mod asks first. The
 entrance slider shows how many entrances the map has. Jumping out of story
@@ -56,8 +57,9 @@ and goes to grid00, the developers' model viewer map.
 ### Developer saves
 
 `FFX_Data` holds about 110 saves the developers used to jump into each part of
-the story (the Basic debug panel's "Game Section"). Loading one replaces the
-running game and warps to its map. Your save files stay as they are until you
+the story (the Basic debug panel's "Game Section"). The list names each
+one by its place and story progress. Loading one replaces the running game
+and warps to its map. Your save files stay as they are until you
 save.
 
 ## Safety
