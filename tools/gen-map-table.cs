@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: MIT
 //
 // For every map (event) id: the number of entrances and whether a jump to it crashes or hangs FFX.exe (Steam HD, the
 // build in ffx-decomp's symbols/ffx.sym). Needs FFX_GAME_DIR and FFX_CLI (the `ffx` binary of ffx-decomp).

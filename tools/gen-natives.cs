@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: MIT
 //
 // Writes src/Script/natives.tsv: one line per event-script native, id<TAB>handler<TAB>name, for the script
 // debugger's `func` annotations. The handlers come from the player's FFX.exe: the native tables AtelInitTotal

@@ -107,5 +107,5 @@ the last argument to write elsewhere, or `-` for the console.
 
 ## License
 
-MIT OR Apache-2.0, at your option. See `THIRD-PARTY-NOTICES` for the files
+MIT, see `LICENSE`. See `THIRD-PARTY-NOTICES` for the files
 taken from the Fahrenheit mod template.

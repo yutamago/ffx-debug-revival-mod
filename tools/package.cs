@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: MIT
 //
 // Zips the Release build as mods/yuta.debugrevival/, ready to unpack into the Fahrenheit folder.
 //
@@ -26,7 +26,7 @@ using (ZipArchive zip = ZipFile.Open(out_path, ZipArchiveMode.Create)) {
     foreach (string file in Directory.EnumerateFiles(mod, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)) {
         zip.CreateEntryFromFile(file, "mods/yuta.debugrevival/" + Path.GetRelativePath(mod, file).Replace('\\', '/'));
     }
-    foreach (string doc in (string[])[ "README.md", "LICENSE-MIT", "LICENSE-APACHE", "THIRD-PARTY-NOTICES" ]) {
+    foreach (string doc in (string[])[ "README.md", "LICENSE", "THIRD-PARTY-NOTICES" ]) {
         zip.CreateEntryFromFile(Path.Combine(root, doc), "mods/yuta.debugrevival/" + doc);
     }
 }
