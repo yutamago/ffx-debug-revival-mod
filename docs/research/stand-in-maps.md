@@ -1,6 +1,6 @@
 # Stand-in scripts for unfinished areas
 
-Seven `no_file` maps get a stand-in: three with a PC level, four with only the PS2 file ("floor only").
+Five `no_file` maps get a stand-in: three with a PC level, two with only the PS2 file ("floor only").
 
 ## Areas with a PC level
 
@@ -23,19 +23,27 @@ three.
 
 | Map | Missing script | Geometry | Notes |
 |---|---|---|---|
-| 304 | hiku1200.ebp | 392, hiku12 | |
-| 360 | bvyt1500.ebp | 409, bvyt15 | |
-| 216 | bvyt1400.ebp | none; borrows pair 21 (znkd11) | |
-| 300 | lchb1900.ebp | none; borrows pair 309 (kami09) | |
+| 360 | bvyt1500.ebp | 409, bvyt15 | 2D map, 600 KB |
+| 216 | bvyt1400.ebp | none; borrows pair 21 (znkd11) | 2D map, 330 KB |
+
+Not possible: **hiku12** (304) and **lchb19** (300). Their `mapout.vpa` is 64 bytes, a bare `MAP1`
+header with every section offset 0. `yiMapGetSection` 0x00907f00 then returns the header itself for
+section 0, and `Yn_PreBgSetData` → `rcbgLoadBin` 0x00921d60 parses it. On an unknown chunk tag
+`rcbgLoadBin` prints an error and goes on to the next chunk, so it walks into garbage until
+`rcbgChkId`'s `strncmp` faults. Seen in the game (map 304).
+
+The two that load are 2D maps: section 0 is a `YNDT` background (pre-rendered layers), section 2 the
+walk mesh, section 11 another `YNDT`. The PC version draws 2D maps from a Phyre model of its own
+(`map/<area>/2d/mdl/d3d11/<area>.dae.phyre`), which these two lack.
 
 Only `map/<area>/bin/mapout.vpa` ships for these (no `.txa`, no PC level). `yiMapReadMaster`
 0x009093b0 installs the walk mesh from it, and the guide map is built from the walk mesh
 (`rcbgGuideSetModelFromIdMap`). `graphicFieldMapLoad` gets the slot's level name, and
 `PhyreScene_fieldMapLoadAsync` finds no PC level for it (`fiosIsFileExist`) and loads nothing.
 
-bvyt14 and lchb19 have no pair in module 0x13 at all. Pairs 21 and 309 name files that aren't shipped
-(znkd11, kami09), and no shipped script uses them. The mod's `PcFileName` hook returns the bvyt14 and
-lchb19 names for those two pairs' entries. It does this only while the pairs' own `.vpa` files are missing
+bvyt14 has no pair in module 0x13. Pair 21 names files that aren't shipped (znkd11), and no shipped
+script uses it. The mod's `PcFileName` hook returns bvyt14's names for that pair's entries. It does this
+only while the pair's own `.vpa` is missing
 and the replacement exists. `CDfileSize_PC` sizes the file by name (`sceOpen`; module 0x13 is not in
 its CD_EX list, and Fahrenheit's CD module forces that path anyway).
 

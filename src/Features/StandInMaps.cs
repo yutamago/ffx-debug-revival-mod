@@ -19,9 +19,9 @@ public sealed unsafe class StandInMaps(FhLogger log) {
 
     public static readonly StandIn[] ALL = [
         new(262, 397, "hiku17"), new(350, 398, "hiku18"), new(373, 282, "ikai07"),
-        new(304, 392, "hiku12", FloorOnly: true), new(360, 409, "bvyt15", FloorOnly: true),
+        new(360, 409, "bvyt15", FloorOnly: true),
         new(216, 21, "bvyt14", FloorOnly: true, Borrowed: "bvyt/bvyt14"),    // pair 21: znkd11
-        new(300, 309, "lchb19", FloorOnly: true, Borrowed: "lchb/lchb19"),   // pair 309: kami09
+        // hiku12 (304) and lchb19 (300) ship an empty .vpa (a bare MAP1 header), which crashes the map loader.
     ];
 
     private const int TEMPLATE_MAP = 2; // camtest0
