@@ -319,9 +319,11 @@ public sealed class MainWindow(
                 ImGui.EndCombo();
             }
             if (chosen is not null && risk_text(chosen.Risk) is string warning) { ImGui.SameLine(); Txt.C(RED, warning); }
-            if (chosen?.StandIn == true) {
+            if (chosen?.StandIn is StandInMaps.StandIn stand_in) {
                 ImGui.SameLine();
-                Txt.Help("The developers never finished this area, and the game has no script for it. The mod lends it the camera test map's script, so you can walk around: no people, events or exits. Use the map jump to leave.");
+                Txt.Help(stand_in.FloorOnly
+                    ? "The developers never finished this area. Only its PS2 floor plan is left: you walk on an invisible floor, and the minimap shows the layout. The mod lends it the camera test map's script; there are no people, events or exits. Use the map jump to leave."
+                    : "The developers never finished this area, and the game has no script for it. The mod lends it the camera test map's script, so you can walk around: no people, events or exits. Use the map jump to leave.");
             }
         }
         int entrances = chosen?.Entrances ?? 0;

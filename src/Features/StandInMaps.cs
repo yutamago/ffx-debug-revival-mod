@@ -5,16 +5,24 @@ using Yuta.DebugRevival.Native;
 namespace Yuta.DebugRevival.Features;
 
 /// <summary>
-///     Three areas whose geometry ships but whose script does not; a jump there froze the game. The game now reads the
+///     Areas whose geometry ships but whose script does not; a jump there froze the game. The game now reads the
 ///     developers' camera-test map (camtest0) in place of the missing files, and the mod points that script at the area's
 ///     geometry, puts the player on its floor and turns off the test's camera tricks (docs/research/stand-in-maps.md).
 /// </summary>
 public sealed unsafe class StandInMaps(FhLogger log) {
     /// <param name="Map">The event id the game has no script for.</param>
     /// <param name="MapIndex">The geometry its name points at (module 0x13 pair).</param>
-    public readonly record struct StandIn(int Map, short MapIndex, string Area);
+    /// <param name="FloorOnly">Only the PS2 file ships: the walk mesh and minimap, but nothing the PC version draws.</param>
+    /// <param name="Borrowed">The PS2 map's folder when the map table has no pair for it: the pair at
+    /// <paramref name="MapIndex"/>, whose own files are missing, names this one's instead.</param>
+    public readonly record struct StandIn(int Map, short MapIndex, string Area, bool FloorOnly = false, string? Borrowed = null);
 
-    public static readonly StandIn[] ALL = [ new(262, 397, "hiku17"), new(350, 398, "hiku18"), new(373, 282, "ikai07") ];
+    public static readonly StandIn[] ALL = [
+        new(262, 397, "hiku17"), new(350, 398, "hiku18"), new(373, 282, "ikai07"),
+        new(304, 392, "hiku12", FloorOnly: true), new(360, 409, "bvyt15", FloorOnly: true),
+        new(216, 21, "bvyt14", FloorOnly: true, Borrowed: "bvyt/bvyt14"),    // pair 21: znkd11
+        new(300, 309, "lchb19", FloorOnly: true, Borrowed: "lchb/lchb19"),   // pair 309: kami09
+    ];
 
     private const int TEMPLATE_MAP = 2; // camtest0
     private const string TEMPLATE_NAME = "/camtest0.ebp";
@@ -29,6 +37,9 @@ public sealed unsafe class StandInMaps(FhLogger log) {
     private bool _verified;
     private volatile bool _active;
     private int _patched_map = -1;
+    private readonly HashSet<int> _usable = [];
+    // (cdrom.fnd entry, the name it gives instead) of the borrowed pairs; NUL-terminated, never freed
+    private readonly Dictionary<int, nint> _names = [];
 
     private D.IntToPtrFn?    _next_file_name;
     private D.IntIntToPtrFn? _next_read;
@@ -48,36 +59,58 @@ public sealed unsafe class StandInMaps(FhLogger log) {
     }
 
     /// <summary>Whether a jump to the map uses a stand-in. Game thread.</summary>
-    public bool covers(int map) => find(map) is not null && ready();
+    public bool covers(int map) => ready() && _usable.Contains(map);
 
-    // Only while the template is camtest0 and the real scripts are still missing (a game update could ship them).
-    // Checked once, when the file tables are loaded.
+    // Each stand-in only while the template is camtest0, its own script is still missing (a game update could ship it)
+    // and its geometry is there; a borrowed pair only while its own .vpa is missing. Checked once the file tables are
+    // loaded. Calls the game's PcFileName, so the names come out as the game's own would.
     private bool ready() {
         if (!_active) return false;
         if (_verified) return true;
         nint name = FieldTools.script_name(TEMPLATE_MAP);
         if (name <= 0) return false;
         _verified = true;
-        bool ok = Mem.cstr(name, 0x400).EndsWith(TEMPLATE_NAME, StringComparison.Ordinal);
+        if (!Mem.cstr(name, 0x400).EndsWith(TEMPLATE_NAME, StringComparison.Ordinal)) {
+            log.Warning("Unfinished areas stay closed: the camera test map is not the one their stand-in was made for.");
+            _active = false;
+            return false;
+        }
         foreach (StandIn s in ALL) {
             nint own = FieldTools.script_name(s.Map);
-            if (own > 0 && FieldTools.file_exists("/ffx_ps2/" + Mem.cstr(own, 0x400)["host0:/".Length..])) ok = false;
+            if (own > 0 && FieldTools.file_exists(FieldTools.host_path(Mem.cstr(own, 0x400)))) continue;
+            int loc = FieldTools.map_file_loc(s.MapIndex);
+            if (loc < 0) continue;
+            if (s.Borrowed is string dir) {
+                string old_vpa = FieldTools.fnd_name(loc + 1);
+                string level = $"host0:/ffx/master/jppc/map/{dir}/bin/mapout.txa", vpa = $"host0:/ffx/master/jppc/map/{dir}/bin/mapout.vpa";
+                if (old_vpa.Length == 0 || FieldTools.file_exists(FieldTools.host_path(old_vpa))
+                 || !FieldTools.file_exists(FieldTools.host_path(vpa))) continue;
+                _names[loc] = c_string(level);
+                _names[loc + 1] = c_string(vpa);
+            }
+            else if (!FieldTools.file_exists(FieldTools.host_path(FieldTools.fnd_name(loc + 1)))) continue;
+            _usable.Add(s.Map);
         }
-        if (!ok) {
-            log.Warning("Stand-in maps are off: the game's files are not the ones they were made for.");
-            _active = false;
-        }
-        return _active;
+        if (_usable.Count < ALL.Length) log.Warning($"{ALL.Length - _usable.Count} unfinished areas stay closed: their files are not the expected ones.");
+        return true;
     }
 
-    // Every file of a stand-in map (its script and motion groups) is camtest0's.
+    private static nint c_string(string s) {
+        byte[] bytes = Encoding.ASCII.GetBytes(s + "\0");
+        nint p = (nint)NativeMemory.Alloc((nuint)bytes.Length);
+        bytes.CopyTo(new Span<byte>((void*)p, bytes.Length));
+        return p;
+    }
+
+    // Every file of a stand-in map (its script and motion groups) is camtest0's; a borrowed pair names its PS2 map.
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private nint h_file_name(int loc) {
         _next_file_name ??= Calls.PcFileName.chain_from(h_file_name).fnptr!;
-        if (_active) {
-            foreach (StandIn s in ALL) {
-                int first = FieldTools.event_loc(s.Map);
-                if (first >= 0 && loc >= first && loc < first + FieldTools.FILES_PER_MAP && ready()) {
+        if (_active && (_verified || ready())) {
+            if (_names.TryGetValue(loc, out nint name)) return name;
+            foreach (int map in _usable) {
+                int first = FieldTools.event_loc(map);
+                if (first >= 0 && loc >= first && loc < first + FieldTools.FILES_PER_MAP) {
                     return _next_file_name(FieldTools.event_loc(TEMPLATE_MAP) + (loc - first));
                 }
             }
@@ -92,7 +125,7 @@ public sealed unsafe class StandInMaps(FhLogger log) {
         if (module != 0xc || file % FieldTools.FILES_PER_MAP != 0) return buf;
         _patched_map = -1;
         if (!_active || !_verified || buf == 0) return buf;
-        if (find(file / FieldTools.FILES_PER_MAP) is not StandIn s) return buf;
+        if (find(file / FieldTools.FILES_PER_MAP) is not StandIn s || !_usable.Contains(s.Map)) return buf;
         try {
             if (patch_script(buf, s)) _patched_map = s.Map;
             else log.Error($"stand-in for map {s.Map}: camtest0 is not as expected; it loads unchanged");

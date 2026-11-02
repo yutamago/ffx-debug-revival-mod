@@ -1,5 +1,9 @@
 # Stand-in scripts for unfinished areas
 
+Seven `no_file` maps get a stand-in: three with a PC level, four with only the PS2 file ("floor only").
+
+## Areas with a PC level
+
 Three `no_file` maps ([maps.md](maps.md)) name a script the PC version doesn't ship, but their geometry
 ships, PS2 and PC, and no shipped script uses it:
 
@@ -14,6 +18,26 @@ no geometry at all (kami09, znkd11), or geometry that shipped maps already show 
 The 47 `no_name` maps are empty slots with nothing that points at any geometry. The pairing script name
 → geometry is by name (`hiku1700` → `hiku17`), as every shipped script follows it. INFERRED for these
 three.
+
+## Floor-only areas
+
+| Map | Missing script | Geometry | Notes |
+|---|---|---|---|
+| 304 | hiku1200.ebp | 392, hiku12 | |
+| 360 | bvyt1500.ebp | 409, bvyt15 | |
+| 216 | bvyt1400.ebp | none; borrows pair 21 (znkd11) | |
+| 300 | lchb1900.ebp | none; borrows pair 309 (kami09) | |
+
+Only `map/<area>/bin/mapout.vpa` ships for these (no `.txa`, no PC level). `yiMapReadMaster`
+0x009093b0 installs the walk mesh from it, and the guide map is built from the walk mesh
+(`rcbgGuideSetModelFromIdMap`). `graphicFieldMapLoad` gets the slot's level name, and
+`PhyreScene_fieldMapLoadAsync` finds no PC level for it (`fiosIsFileExist`) and loads nothing.
+
+bvyt14 and lchb19 have no pair in module 0x13 at all. Pairs 21 and 309 name files that aren't shipped
+(znkd11, kami09), and no shipped script uses them. The mod's `PcFileName` hook returns the bvyt14 and
+lchb19 names for those two pairs' entries. It does this only while the pairs' own `.vpa` files are missing
+and the replacement exists. `CDfileSize_PC` sizes the file by name (`sceOpen`; module 0x13 is not in
+its CD_EX list, and Fahrenheit's CD module forces that path anyway).
 
 ## How
 
