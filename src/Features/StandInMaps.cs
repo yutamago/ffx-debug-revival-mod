@@ -46,7 +46,8 @@ public sealed unsafe class StandInMaps(FhLogger log) {
     private bool _verified;
     private volatile bool _active;
     private int _patched_map = -1;
-    private int _report_frame; // counts down after a stand-in loads; at 1, what the game set up goes to the log
+    private int _report_frame;
+    private bool _pinned; // the stick's direction is pinned to a 2D stand-in's camera // counts down after a stand-in loads; at 1, what the game set up goes to the log
     private readonly HashSet<int> _usable = [];
     // (cdrom.fnd entry, the name it gives instead) of the borrowed pairs; NUL-terminated, never freed
     private readonly Dictionary<int, nint> _names = [];
@@ -138,6 +139,7 @@ public sealed unsafe class StandInMaps(FhLogger log) {
         if (module != 0xc || file % FieldTools.FILES_PER_MAP != 0) return buf;
         _patched_map = -1;
         OldBackgrounds.last_camera = null;
+        if (_pinned) { Mem.set_u8(G.PlayerDirFixOn, 0); _pinned = false; }
         if (!_active || !_verified || buf == 0) return buf;
         if (find(file / FieldTools.FILES_PER_MAP) is not StandIn s || !_usable.Contains(s.Map)) return buf;
         try {
@@ -148,6 +150,28 @@ public sealed unsafe class StandInMaps(FhLogger log) {
             log.Error($"stand-in for map {s.Map}: {e}");
         }
         return buf;
+    }
+
+    // The stick turns by the active camera's yaw (MsCameraGetYaw, g_Camera), which a 2D map's background camera
+    // doesn't set; shipped 2D maps' scripts correct it themselves. Pin it to the background camera's yaw.
+    private void pin_controls(int map) {
+        nint sys = *(nint*)Mem.at(G.YnMapSystem);
+        nint m = sys != 0 ? *(nint*)sys : 0;
+        nint scene = m != 0 ? *(nint*)(m + 8) : 0;
+        if (scene == 0) return;
+        float* v = (float*)NativeMemory.AlignedAlloc(48, 16);
+        try {
+            for (int i = 0; i < 4; i++) { v[i] = *(float*)(scene + 0x78 + 4 * i); v[4 + i] = *(float*)(scene + 0x68 + 4 * i); }
+            v[8] = 0;
+            Calls.MsVectorRect2Polar.fnptr!((nint)v, (nint)(v + 4), (nint)(v + 8), 0, 0);
+            Mem.set_u32(G.PlayerDirFix, BitConverter.SingleToUInt32Bits(v[8]));
+            Mem.set_u8(G.PlayerDirFixOn, 1);
+            _pinned = true;
+            log.Info($"stand-in for map {map}: controls follow the background camera (yaw {v[8]:0.###})");
+        }
+        finally {
+            NativeMemory.AlignedFree(v);
+        }
     }
 
     /// <summary>Game thread, after each update.</summary>
@@ -243,6 +267,7 @@ public sealed unsafe class StandInMaps(FhLogger log) {
             *(short*)(p + 7) = (short)MathF.Round(z);
             *(float*)(block + *(int*)(w0 + 0x1c) + 4 * Y_CONSTANT) = y;
             log.Info($"stand-in for map {map}: player at ({x:0.#}, {y:0.#}, {z:0.#})");
+            if (find(map) is StandIn { Fixed: true }) pin_controls(map);
             _report_frame = 60;
         }
         catch (Exception e) {

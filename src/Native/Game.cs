@@ -37,6 +37,7 @@ public static class D {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint UIntToPtrFn(uint a);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint IntToPtrFn(int a);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint IntIntToPtrFn(int a, int b);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void Ptr5Fn(nint a, nint b, nint c, nint d, nint e);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint Int4Fn(int a, int b, int c, int d);
 
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisFn(nint self);
@@ -169,6 +170,8 @@ public static class Calls {
     public static FhCallHandle<D.IntIntToPtrFn> TkCdReadWithMallocWithMessage => h<D.IntIntToPtrFn>(0x0088d2c0);
     /// <summary>cdecl () -> the player's character (g_ChrArray entry; +0xc x, +0x10 y, +0x14 z), 0 without one.</summary>
     public static FhCallHandle<D.RetPtrFn> Sg_GetPlayer => h<D.RetPtrFn>(0x0082d860);
+    /// <summary>cdecl (look-at, eye, &amp;yaw, &amp;pitch or 0, &amp;distance or 0): MsCameraGetYaw's polar angles.</summary>
+    public static FhCallHandle<D.Ptr5Fn> MsVectorRect2Polar => h<D.Ptr5Fn>(0x007c4990);
     /// <summary>cdecl (data): loads a YNDT background (rcbgLoadBin) when the map system is up.</summary>
     public static FhCallHandle<D.PtrFn> Yn_PreBgSetData => h<D.PtrFn>(0x0091aa60);
     /// <summary>cdecl (on): random encounters on/off (g_BattleEnable).</summary>
@@ -238,6 +241,8 @@ public static class G {
     public const uint IdVertices  = 0x01301a8c; // ptr
     public const uint IdZoom      = 0x01301a90; // f32
 
+    public const uint PlayerDirFixOn = 0x013007c4; // u8: Sg_ControlPlayer turns the stick by PlayerDirFix, not the camera's yaw
+    public const uint PlayerDirFix   = 0x013007c8; // f32 radians
     public const uint YnMapSystem = 0x0193bf80; // ptr: +0 the map, whose +8 is the 2D scene (+4 layers, +8 0xc0 each; +0x68 eye, +0x78 target, +0xa8 fov)
 
     // free camera gates
