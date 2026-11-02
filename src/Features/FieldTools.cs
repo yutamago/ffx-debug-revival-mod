@@ -283,7 +283,7 @@ public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag fla
             int id = *(int*)(e + 0xc);
             MapInfo info = map_info.GetValueOrDefault(id, new MapInfo(0, -1));
             list[i] = stand_ins.covers(id) && StandInMaps.find(id) is StandInMaps.StandIn s
-                ? new MapEntry(id, sb.ToString(), s.FloorOnly ? "unused area, floor only" : "unused area", risk(id), 1, s)
+                ? new MapEntry(id, sb.ToString(), "unused area", risk(id), 1, s)
                 : new MapEntry(id, sb.ToString(), place_name(info.Place), risk(id), info.Entrances);
         }
         maps = [ .. list.OrderBy(m => m.Id) ];

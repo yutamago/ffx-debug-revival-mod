@@ -1,6 +1,7 @@
 # Stand-in scripts for unfinished areas
 
-Five `no_file` maps get a stand-in: three with a PC level, two with only the PS2 file ("floor only").
+Five `no_file` maps get a stand-in: three with a PC level, two with only the PS2 file, whose PC files the mod builds
+([old-backgrounds.md](old-backgrounds.md)).
 
 ## Areas with a PC level
 
@@ -19,7 +20,7 @@ The 47 `no_name` maps are empty slots with nothing that points at any geometry. 
 → geometry is by name (`hiku1700` → `hiku17`), as every shipped script follows it. INFERRED for these
 three.
 
-## Floor-only areas
+## Areas with only the PS2 file
 
 | Map | Missing script | Geometry | Notes |
 |---|---|---|---|
@@ -32,20 +33,8 @@ section 0, and `Yn_PreBgSetData` → `rcbgLoadBin` 0x00921d60 parses it. On an u
 `rcbgLoadBin` prints an error and goes on to the next chunk, so it walks into garbage until
 `rcbgChkId`'s `strncmp` faults. Seen in the game (map 304).
 
-The two that load are 2D maps: section 0 is a `YNDT` background (pre-rendered layers), section 2 the
-walk mesh, section 11 a `YNDT` with the guide model (`YNGM`). Their backgrounds are in an older format
-than any shipped map's: a small `YNSC` scene plus a `YNTM` chunk (textures), where shipped 2D maps
-keep the textures inside `YNSC` (hiku17: one 0xe251-row `YNSC`). `rcbgLoadBin`'s switch has no case
-for `YNTM` (tag 4 of `g_RcbgChunkTags` 0x00c5e480), and `rcbgSceneLoad` → `rcbgLayerLoad` →
-`rcdtParseGetBin` copies from a bad offset (crash seen on map 216). The mod's `yiMapGetSection`
-0x00907f00 hook returns 0 for section 0 while a floor-only map is loading, so the game skips the
-background and still installs the walk mesh and guide model. The PC version draws 2D maps from a Phyre model of its own
-(`map/<area>/2d/mdl/d3d11/<area>.dae.phyre`), which these two lack.
-
-Only `map/<area>/bin/mapout.vpa` ships for these (no `.txa`, no PC level). `yiMapReadMaster`
-0x009093b0 installs the walk mesh from it, and the guide map is built from the walk mesh
-(`rcbgGuideSetModelFromIdMap`). `graphicFieldMapLoad` gets the slot's level name, and
-`PhyreScene_fieldMapLoadAsync` finds no PC level for it (`fiosIsFileExist`) and loads nothing.
+The two that load are 2D maps in an older background format; [old-backgrounds.md](old-backgrounds.md) has
+how the mod reads it and builds their PC files.
 
 bvyt14 has no pair in module 0x13. Pair 21 names files that aren't shipped (znkd11), and no shipped
 script uses it. The mod's `PcFileName` hook returns bvyt14's names for that pair's entries. It does this
@@ -64,9 +53,17 @@ its CD_EX list, and Fahrenheit's CD module forces that path anyway).
   writes the area's geometry into entrance 0 (`AtelGetMapIndex` reads +0; camtest0 has no per-language
   table), and ends worker 0's main loop (it cycles depth masks every 80 frames) and worker 2's set-up
   (camera line areas around camtest0's room) at their first instruction.
+- **Camera.** On a 2D map the game sets the camera from the background (`rcbgSceneSetMatrix`); camtest0's
+  follow camera (worker 0's `CamRefSetTarget`/`CamSetPolar` at code +0x48, worker 1's `AttachCamera` and
+  polar loop) overrode it for the characters, so for 2D stand-ins the set-up is nop'd and worker 1 ends at
+  once. The stick turns by `g_Camera`'s yaw (`MsCameraGetYaw` in `Sg_ControlPlayer`), which a background
+  camera doesn't set; shipped 2D scripts correct it themselves. The mod pins it: `g_PlayerDirFixOn`
+  0x013007c4 = 1, `g_PlayerDirFix` 0x013007c8 = `MsVectorRect2Polar(target, eye)`'s yaw from the
+  background scene, cleared when the next script is read. Seen in the game: controls match the view.
 - **Spawn.** `yiMapReadMaster` reads the map synchronously inside `AtelEventSetUp`, so the walk mesh
   is installed (`Sg_IdSetPtr`: triangles 0x01301a84, count 0x01301a88, vertices 0x01301a8c, zoom
   0x01301a90; world = mesh / zoom) when it returns. The mod picks the triangle whose centre is nearest
+  the middle of the screen through the background camera (2D maps with an old background), else nearest
   the mesh's mean centre and writes that point into the `setPosition` operands (x, z as `pushimm`, y in
   worker 0's float constant 8, which only that call uses). INFERRED: the workers' set-up runs in a later
   frame (`Atel_EventFrame`), after the patch.

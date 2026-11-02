@@ -322,7 +322,7 @@ public sealed class MainWindow(
             if (chosen?.StandIn is StandInMaps.StandIn stand_in) {
                 ImGui.SameLine();
                 Txt.Help(stand_in.FloorOnly
-                    ? "The developers never finished this area. Only its PS2 floor plan is left: you walk on an invisible floor, and the minimap shows the layout. The mod lends it the camera test map's script; there are no people, events or exits. Use the map jump to leave."
+                    ? "The developers never finished this area, and the PC version has no picture of it. The mod rebuilds one from the PS2 background the first time the game runs with it; until you restart once, you walk on an invisible floor. It lends the area the camera test map's script: there are no people, events or exits. Use the map jump to leave."
                     : "The developers never finished this area, and the game has no script for it. The mod lends it the camera test map's script, so you can walk around: no people, events or exits. Use the map jump to leave.");
             }
         }
