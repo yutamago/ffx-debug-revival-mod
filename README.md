@@ -48,7 +48,11 @@ the sound. With the F10/F11 box ticked, those keys toggle the two.
 The list holds the developers' internal map names, with the place name the
 save screen shows, in your game's language, where the map has one. Maps in red would crash or
 freeze the game, because the PC version lacks their script, so the mod refuses
-them. Map 399 sends the game back to the title screen; the mod asks first. The
+them. Five unfinished areas have their geometry but no script; the mod lends
+them the camera test map's script, so you can walk around in them. Two of them,
+rooms in Bevelle (maps 216 and 360), only survive as PS2 backgrounds in an older
+format; the first time the game runs with the mod, it rebuilds them for the PC
+version from your game files, and they show from the next start. Map 399 sends the game back to the title screen; the mod asks first. The
 entrance slider shows how many entrances the map has. Jumping out of story
 order can break progression, and some maps may still get stuck if the story
 isn't where their script expects. **Model viewer** turns the debug flag on

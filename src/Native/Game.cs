@@ -35,6 +35,9 @@ public static class D {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint RectBuildFn(nint render, uint a1, uint a2, uint a3, uint a4, uint a5, uint a6, uint a7, uint unlimited);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint UIntToPtrFn(uint a);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint IntToPtrFn(int a);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint IntIntToPtrFn(int a, int b);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void Ptr5Fn(nint a, nint b, nint c, nint d, nint e);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint Int4Fn(int a, int b, int c, int d);
 
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisFn(nint self);
@@ -161,6 +164,16 @@ public static class Calls {
     public static FhCallHandle<D.IntPtrUIntToIntFn> debugLoadForViewer => h<D.IntPtrUIntToIntFn>(0x00649040);
     public static FhCallHandle<D.PtrPtrIntFn> fiosUnifyFilename => h<D.PtrPtrIntFn>(0x00679820);
     public static FhCallHandle<D.PtrToIntFn> fiosIsFileExist => h<D.PtrToIntFn>(0x006796f0);
+    /// <summary>cdecl (loc) -> the PC path of cdrom.fnd entry loc (absolute), in a shared buffer; 0 when the entry is empty.</summary>
+    public static FhCallHandle<D.IntToPtrFn> PcFileName => h<D.IntToPtrFn>(0x00a42c00);
+    /// <summary>cdecl (module, file) -> buffer: reads a file whole and waits for it; the .ebp is (0xc, map * 0x12).</summary>
+    public static FhCallHandle<D.IntIntToPtrFn> TkCdReadWithMallocWithMessage => h<D.IntIntToPtrFn>(0x0088d2c0);
+    /// <summary>cdecl () -> the player's character (g_ChrArray entry; +0xc x, +0x10 y, +0x14 z), 0 without one.</summary>
+    public static FhCallHandle<D.RetPtrFn> Sg_GetPlayer => h<D.RetPtrFn>(0x0082d860);
+    /// <summary>cdecl (look-at, eye, &amp;yaw, &amp;pitch or 0, &amp;distance or 0): MsCameraGetYaw's polar angles.</summary>
+    public static FhCallHandle<D.Ptr5Fn> MsVectorRect2Polar => h<D.Ptr5Fn>(0x007c4990);
+    /// <summary>cdecl (data): loads a YNDT background (rcbgLoadBin) when the map system is up.</summary>
+    public static FhCallHandle<D.PtrFn> Yn_PreBgSetData => h<D.PtrFn>(0x0091aa60);
     /// <summary>cdecl (on): random encounters on/off (g_BattleEnable).</summary>
     public static FhCallHandle<D.IntFn> setBattleEnable => h<D.IntFn>(0x00782f70);
     /// <summary>cdecl () -> the field's "ignore collision" flag; hooked for noclip.</summary>
@@ -220,6 +233,17 @@ public static class G {
     public const uint EventEffectState   = 0x01133364; // i8, 0 = no event effect
     public const uint MagicLoaded        = 0x00c64cac; // i32 handle, -1 = none
     public const uint MagicPendingUnload = 0x00c64cb0; // i32 handle, -1 = none
+
+    // the walk mesh (Sg_IdSetPtr): 16-byte triangles of three i16 vertex numbers; 8-byte vertices, i16 x, y, z;
+    // its coordinates are the world's times the zoom
+    public const uint IdTriangles = 0x01301a84; // ptr
+    public const uint IdCount     = 0x01301a88; // i32
+    public const uint IdVertices  = 0x01301a8c; // ptr
+    public const uint IdZoom      = 0x01301a90; // f32
+
+    public const uint PlayerDirFixOn = 0x013007c4; // u8: Sg_ControlPlayer turns the stick by PlayerDirFix, not the camera's yaw
+    public const uint PlayerDirFix   = 0x013007c8; // f32 radians
+    public const uint YnMapSystem = 0x0193bf80; // ptr: +0 the map, whose +8 is the 2D scene (+4 layers, +8 0xc0 each; +0x68 eye, +0x78 target, +0xa8 fov)
 
     // free camera gates
     public const uint AsyncControllerOn = 0x0133c930; // u8

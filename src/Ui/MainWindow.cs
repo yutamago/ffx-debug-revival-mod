@@ -319,6 +319,12 @@ public sealed class MainWindow(
                 ImGui.EndCombo();
             }
             if (chosen is not null && risk_text(chosen.Risk) is string warning) { ImGui.SameLine(); Txt.C(RED, warning); }
+            if (chosen?.StandIn is StandInMaps.StandIn stand_in) {
+                ImGui.SameLine();
+                Txt.Help(stand_in.FloorOnly
+                    ? "The developers never finished this area, and the PC version has no picture of it. The mod rebuilds one from the PS2 background the first time the game runs with it; until you restart once, you walk on an invisible floor. It lends the area the camera test map's script: there are no people, events or exits. Use the map jump to leave."
+                    : "The developers never finished this area, and the game has no script for it. The mod lends it the camera test map's script, so you can walk around: no people, events or exits. Use the map jump to leave.");
+            }
         }
         int entrances = chosen?.Entrances ?? 0;
         ImGui.SetNextItemWidth(120);
