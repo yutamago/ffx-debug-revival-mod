@@ -12,10 +12,36 @@ namespace Yuta.DebugRevival.Features;
 ///     (docs/research/old-backgrounds.md).
 /// </summary>
 public sealed unsafe class OldBackgrounds(FhLogger log) {
-    private D.PtrFn? _next_set_data;
+    private D.PtrFn?      _next_set_data;
+    private D.PtrToIntFn? _next_exists;
     private nint _converted; // the last rewrite; the game keeps pointers into it while the map is loaded
+    private string[] _generated = []; // the mod's replacement files, as "/FFX_DATA/..." in upper case
 
-    public bool init(FhModule owner) => Calls.Yn_PreBgSetData.hook(owner, h_set_data);
+    /// <summary>The camera of the last background rewritten, in world units; null once another map's script is read.</summary>
+    public static volatile Camera? last_camera;
+
+    public sealed record Camera(Vector3 Eye, Vector3 Target, Vector3 Up, float Fov);
+
+    /// <param name="efl">The mod's folder of replacement files for FFX (efl/x).</param>
+    public bool init(FhModule owner, DirectoryInfo efl) {
+        if (efl.Exists) {
+            _generated = [ .. efl.GetFiles("*", SearchOption.AllDirectories)
+                .Select(f => "/" + Path.GetRelativePath(efl.FullName, f.FullName).Replace('\\', '/').ToUpperInvariant()) ];
+        }
+        return Calls.Yn_PreBgSetData.hook(owner, h_set_data) && Calls.fiosIsFileExist.hook(owner, h_exists);
+    }
+
+    // Fahrenheit serves the mod's files when the game opens them, but the PC map loader first asks fiosIsFileExist,
+    // which only knows the archive; files the archive never had would be skipped.
+    [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
+    private int h_exists(nint path) {
+        _next_exists ??= Calls.fiosIsFileExist.chain_from(h_exists).fnptr!;
+        if (_generated.Length > 0 && path != 0) {
+            string p = Mem.cstr(path, 0x200).Replace('\\', '/').ToUpperInvariant();
+            foreach (string g in _generated) if (p.EndsWith(g, StringComparison.Ordinal)) return 1;
+        }
+        return _next_exists(path);
+    }
 
     [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
     private void h_set_data(nint data) {
@@ -76,6 +102,7 @@ public sealed unsafe class OldBackgrounds(FhLogger log) {
     // texture), the palette transfer (BITBLTBUF, TRXPOS, TRXREG, count, entry size 0x410), then count palettes of 0x400
     // bytes, without the transfers' tags.
     private const int OLD_HEADER = 0x50, OLD_TRANSFER = 0x20, PALETTE = 0x400, TAIL = 0x38;
+    private const float OLD_CAMERA_SCALE = 10;
 
     /// <summary>The model the PC files are built from (hiku17's) has this many layers; the background gets as many.</summary>
     public const int LAYERS = 4;
@@ -153,7 +180,13 @@ public sealed unsafe class OldBackgrounds(FhLogger log) {
             w.Write(new byte[16]);                                    // +0xba, +0xbb
             w.Write(PALETTE_REGS); w.Write(2); w.Write(NEW_PALETTE); w.Write(new byte[2 * NEW_PALETTE]);
         }
-        w.Write(tail);
+        // The old format keeps the camera at a tenth of the world's scale (the walk mesh lands on screen only at x10).
+        float[] cam = new float[TAIL / 4];
+        for (int i = 0; i < cam.Length; i++) cam[i] = BitConverter.ToSingle(tail.Slice(4 * i));
+        for (int i = 0; i < 3; i++) { cam[i] *= OLD_CAMERA_SCALE; cam[4 + i] *= OLD_CAMERA_SCALE; }
+        foreach (float f in cam.AsSpan(0, 13)) w.Write(f);
+        w.Write(tail.Slice(13 * 4));
+        last_camera = new Camera(new(cam[0], cam[1], cam[2]), new(cam[4], cam[5], cam[6]), new(cam[8], cam[9], cam[10]), cam[12]);
         while (out_.Length % CHUNK != 0) w.Write((byte)0);
         return out_.ToArray();
     }

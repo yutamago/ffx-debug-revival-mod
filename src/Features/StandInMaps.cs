@@ -128,6 +128,7 @@ public sealed unsafe class StandInMaps(FhLogger log) {
         nint buf = _next_read(module, file);
         if (module != 0xc || file % FieldTools.FILES_PER_MAP != 0) return buf;
         _patched_map = -1;
+        OldBackgrounds.last_camera = null;
         if (!_active || !_verified || buf == 0) return buf;
         if (find(file / FieldTools.FILES_PER_MAP) is not StandIn s || !_usable.Contains(s.Map)) return buf;
         try {
@@ -218,15 +219,30 @@ public sealed unsafe class StandInMaps(FhLogger log) {
             }
             return (x / 3, y / 3, z / 3);
         }
-        double mx = 0, mz = 0;
-        for (int i = 0; i < count; i++) { var c = centre(i); mx += c.x; mz += c.z; }
-        mx /= count; mz /= count;
         int best = 0;
         double best_d = double.MaxValue;
-        for (int i = 0; i < count; i++) {
-            var c = centre(i);
-            double d = (c.x - mx) * (c.x - mx) + (c.z - mz) * (c.z - mz);
-            if (d < best_d) { best_d = d; best = i; }
+        if (OldBackgrounds.last_camera is OldBackgrounds.Camera cam) {
+            // A fixed camera: the triangle nearest the middle of the screen.
+            Vector3 f = Vector3.Normalize(cam.Target - cam.Eye), r = Vector3.Normalize(Vector3.Cross(f, cam.Up)), u = Vector3.Cross(r, f);
+            for (int i = 0; i < count; i++) {
+                var c = centre(i);
+                Vector3 d = new Vector3(c.x, c.y, c.z) / zoom - cam.Eye;
+                float depth = Vector3.Dot(d, f);
+                if (depth <= 0) continue;
+                float sx = Vector3.Dot(d, r) / depth, sy = Vector3.Dot(d, u) / depth;
+                double off = sx * sx + sy * sy;
+                if (off < best_d) { best_d = off; best = i; }
+            }
+        }
+        if (best_d == double.MaxValue) {
+            double mx = 0, mz = 0;
+            for (int i = 0; i < count; i++) { var c = centre(i); mx += c.x; mz += c.z; }
+            mx /= count; mz /= count;
+            for (int i = 0; i < count; i++) {
+                var c = centre(i);
+                double d = (c.x - mx) * (c.x - mx) + (c.z - mz) * (c.z - mz);
+                if (d < best_d) { best_d = d; best = i; }
+            }
         }
         var (bx, by, bz) = centre(best);
         return (bx / zoom, (by - 1) / zoom, bz / zoom);

@@ -57,7 +57,7 @@ public sealed class DebugRevivalModule : FhModule {
         _field.shows_builtin_text = _jp_text.init(this);
         warn_unless(_field.shows_builtin_text, "Japanese text for maps without text in the game's language");
         warn_unless(_stand_ins.init(this), "stand-in scripts for unfinished areas");
-        _stand_ins.floor_only_allowed = _old_backgrounds.init(this);
+        _stand_ins.floor_only_allowed = _old_backgrounds.init(this, new DirectoryInfo(Path.Join(mod_context.Paths.EflDir.FullName, "x")));
         warn_unless(_stand_ins.floor_only_allowed, "old-format backgrounds of two unfinished areas");
         warn_unless(_log.init(this),     "debug log");
         warn_unless(_gu.init(this),      "PS2 debug menu");
