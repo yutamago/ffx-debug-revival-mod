@@ -33,7 +33,13 @@ section 0, and `Yn_PreBgSetData` → `rcbgLoadBin` 0x00921d60 parses it. On an u
 `rcbgChkId`'s `strncmp` faults. Seen in the game (map 304).
 
 The two that load are 2D maps: section 0 is a `YNDT` background (pre-rendered layers), section 2 the
-walk mesh, section 11 another `YNDT`. The PC version draws 2D maps from a Phyre model of its own
+walk mesh, section 11 a `YNDT` with the guide model (`YNGM`). Their backgrounds are in an older format
+than any shipped map's: a small `YNSC` scene plus a `YNTM` chunk (textures), where shipped 2D maps
+keep the textures inside `YNSC` (hiku17: one 0xe251-row `YNSC`). `rcbgLoadBin`'s switch has no case
+for `YNTM` (tag 4 of `g_RcbgChunkTags` 0x00c5e480), and `rcbgSceneLoad` → `rcbgLayerLoad` →
+`rcdtParseGetBin` copies from a bad offset (crash seen on map 216). The mod's `yiMapGetSection`
+0x00907f00 hook returns 0 for section 0 while a floor-only map is loading, so the game skips the
+background and still installs the walk mesh and guide model. The PC version draws 2D maps from a Phyre model of its own
 (`map/<area>/2d/mdl/d3d11/<area>.dae.phyre`), which these two lack.
 
 Only `map/<area>/bin/mapout.vpa` ships for these (no `.txa`, no PC level). `yiMapReadMaster`

@@ -37,6 +37,7 @@ public static class D {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint UIntToPtrFn(uint a);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint IntToPtrFn(int a);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint IntIntToPtrFn(int a, int b);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate nint PtrIntToPtrFn(nint a, int b);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint Int4Fn(int a, int b, int c, int d);
 
     [UnmanagedFunctionPointer(CallingConvention.ThisCall)] public delegate void ThisFn(nint self);
@@ -167,6 +168,8 @@ public static class Calls {
     public static FhCallHandle<D.IntToPtrFn> PcFileName => h<D.IntToPtrFn>(0x00a42c00);
     /// <summary>cdecl (module, file) -> buffer: reads a file whole and waits for it; the .ebp is (0xc, map * 0x12).</summary>
     public static FhCallHandle<D.IntIntToPtrFn> TkCdReadWithMallocWithMessage => h<D.IntIntToPtrFn>(0x0088d2c0);
+    /// <summary>cdecl (map, index) -> section index of a MAP1 file (.vpa), 0 when it has none.</summary>
+    public static FhCallHandle<D.PtrIntToPtrFn> yiMapGetSection => h<D.PtrIntToPtrFn>(0x00907f00);
     /// <summary>cdecl (on): random encounters on/off (g_BattleEnable).</summary>
     public static FhCallHandle<D.IntFn> setBattleEnable => h<D.IntFn>(0x00782f70);
     /// <summary>cdecl () -> the field's "ignore collision" flag; hooked for noclip.</summary>

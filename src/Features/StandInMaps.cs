@@ -12,7 +12,8 @@ namespace Yuta.DebugRevival.Features;
 public sealed unsafe class StandInMaps(FhLogger log) {
     /// <param name="Map">The event id the game has no script for.</param>
     /// <param name="MapIndex">The geometry its name points at (module 0x13 pair).</param>
-    /// <param name="FloorOnly">Only the PS2 file ships: the walk mesh and minimap, but nothing the PC version draws.</param>
+    /// <param name="FloorOnly">Only the PS2 file ships: the walk mesh and minimap, but nothing the PC version draws. Its
+    /// background (section 0) is in an older format the game can't read (textures in a YNTM chunk), so it is skipped.</param>
     /// <param name="Borrowed">The PS2 map's folder when the map table has no pair for it: the pair at
     /// <paramref name="MapIndex"/>, whose own files are missing, names this one's instead.</param>
     public readonly record struct StandIn(int Map, short MapIndex, string Area, bool FloorOnly = false, string? Borrowed = null);
@@ -37,6 +38,7 @@ public sealed unsafe class StandInMaps(FhLogger log) {
     private bool _verified;
     private volatile bool _active;
     private int _patched_map = -1;
+    private volatile int _floor_only_map = -1; // the map whose script was read last, when it is floor-only
     private readonly HashSet<int> _usable = [];
     // (cdrom.fnd entry, the name it gives instead) of the borrowed pairs; NUL-terminated, never freed
     private readonly Dictionary<int, nint> _names = [];
@@ -44,6 +46,7 @@ public sealed unsafe class StandInMaps(FhLogger log) {
     private D.IntToPtrFn?    _next_file_name;
     private D.IntIntToPtrFn? _next_read;
     private D.IntFn?         _next_setup;
+    private D.PtrIntToPtrFn? _next_section;
 
     public bool active => _active;
 
@@ -54,7 +57,7 @@ public sealed unsafe class StandInMaps(FhLogger log) {
 
     public bool init(FhModule owner) {
         _active = Calls.PcFileName.hook(owner, h_file_name) && Calls.TkCdReadWithMallocWithMessage.hook(owner, h_read)
-               && Calls.AtelEventSetUp.hook(owner, h_event_setup);
+               && Calls.AtelEventSetUp.hook(owner, h_event_setup) && Calls.yiMapGetSection.hook(owner, h_section);
         return _active;
     }
 
@@ -124,16 +127,28 @@ public sealed unsafe class StandInMaps(FhLogger log) {
         nint buf = _next_read(module, file);
         if (module != 0xc || file % FieldTools.FILES_PER_MAP != 0) return buf;
         _patched_map = -1;
+        _floor_only_map = -1;
         if (!_active || !_verified || buf == 0) return buf;
         if (find(file / FieldTools.FILES_PER_MAP) is not StandIn s || !_usable.Contains(s.Map)) return buf;
         try {
-            if (patch_script(buf, s)) _patched_map = s.Map;
+            if (patch_script(buf, s)) {
+                _patched_map = s.Map;
+                if (s.FloorOnly) _floor_only_map = s.Map;
+            }
             else log.Error($"stand-in for map {s.Map}: camtest0 is not as expected; it loads unchanged");
         }
         catch (Exception e) {
             log.Error($"stand-in for map {s.Map}: {e}");
         }
         return buf;
+    }
+
+    // A floor-only map's background: the game would parse it in the new format and crash (rcbgLayerLoad).
+    [UnmanagedCallConv(CallConvs = [ typeof(CallConvCdecl) ])]
+    private nint h_section(nint map, int index) {
+        _next_section ??= Calls.yiMapGetSection.chain_from(h_section).fnptr!;
+        if (index == 0 && _floor_only_map >= 0) return 0;
+        return _next_section(map, index);
     }
 
     // The block's offsets; false when camtest0 differs from the one this was written for.
