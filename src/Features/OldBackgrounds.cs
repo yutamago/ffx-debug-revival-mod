@@ -17,7 +17,7 @@ public sealed unsafe class OldBackgrounds(FhLogger log) {
     private nint _converted; // the last rewrite; the game keeps pointers into it while the map is loaded
     private string[] _generated = []; // the mod's replacement files, as "/FFX_DATA/..." in upper case
 
-    /// <summary>The camera of the last background rewritten, in world units; null once another map's script is read.</summary>
+    /// <summary>The camera of the last background rewritten, eye and target in world units; null once another map's script is read.</summary>
     public static volatile Camera? last_camera;
 
     public sealed record Camera(Vector3 Eye, Vector3 Target, Vector3 Up, float Fov);
@@ -102,7 +102,7 @@ public sealed unsafe class OldBackgrounds(FhLogger log) {
     // texture), the palette transfer (BITBLTBUF, TRXPOS, TRXREG, count, entry size 0x410), then count palettes of 0x400
     // bytes, without the transfers' tags.
     private const int OLD_HEADER = 0x50, OLD_TRANSFER = 0x20, PALETTE = 0x400, TAIL = 0x38;
-    private const float OLD_SCALE = 10; // camera and layer depths, against the world's units
+    private const float SCENE_SCALE = 10; // rcbgSceneInit's +0xf4, which rcbgSetViewMatrix multiplies eye and target by
 
     /// <summary>The model the PC files are built from (hiku17's) has this many layers; the background gets as many.</summary>
     public const int LAYERS = 4;
@@ -139,20 +139,11 @@ public sealed unsafe class OldBackgrounds(FhLogger log) {
             gs[best].AddRange(gs[best + 1]);
             gs.RemoveAt(best + 1);
         }
-        List<(float, int[])> result = [ .. gs.Select(g => (pc_depth(layers[g[0]].depth), g.ToArray())) ];
-        while (result.Count < LAYERS) result.Add((pc_depth(layers[gs[0][0]].depth), []));
+        List<(float, int[])> result = [ .. gs.Select(g => (layers[g[0]].depth, g.ToArray())) ];
+        while (result.Count < LAYERS) result.Add((layers[gs[0][0]].depth, []));
         return result;
     }
 
-    /// <summary>
-    ///     An old layer depth in the game's units. The old format keeps depths at a tenth of the scale, like its camera
-    ///     (bvyt14's floor is 65..114 from the camera, its back layer 100). Past 400 they are squeezed, order kept, to
-    ///     stay well inside the far clip (Ch_SetClipZ 1000 in rcbgSceneSetMatrix).
-    /// </summary>
-    public static float pc_depth(float old) {
-        float d = old * OLD_SCALE;
-        return d <= 400 ? d : 400 + (d - 400) / 100;
-    }
 
     // New layer (rcbgLayerLoad 0x0092b1a0), as the shipped 2D maps have it: a 0x90-byte header in 448-line units; one
     // animation (count, padding, one frame word, padding, and a transfer of the 8-bit image: rcbgSceneProcLayer reads
@@ -190,13 +181,14 @@ public sealed unsafe class OldBackgrounds(FhLogger log) {
             w.Write(new byte[16]);                                    // +0xba, +0xbb
             w.Write(PALETTE_REGS); w.Write(2); w.Write(NEW_PALETTE); w.Write(new byte[2 * NEW_PALETTE]);
         }
-        // The old format keeps the camera at a tenth of the world's scale (the walk mesh lands on the painted floor at x10).
-        float[] cam = new float[TAIL / 4];
-        for (int i = 0; i < cam.Length; i++) cam[i] = BitConverter.ToSingle(tail.Slice(4 * i));
-        for (int i = 0; i < 3; i++) { cam[i] *= OLD_SCALE; cam[4 + i] *= OLD_SCALE; }
-        foreach (float f in cam.AsSpan(0, 13)) w.Write(f);
-        w.Write(tail.Slice(13 * 4));
-        last_camera = new Camera(new(cam[0], cam[1], cam[2]), new(cam[4], cam[5], cam[6]), new(cam[8], cam[9], cam[10]), cam[12]);
+        // Camera and layer depths are in the same units as the shipped format's: the game scales eye and target by the
+        // scene's +0xf4 (10, rcbgSceneInit) and compares depths with the player's view depth x 0.1 (rcbgSceneSetChadist).
+        w.Write(tail);
+        float[] c = new float[13];
+        for (int i = 0; i < c.Length; i++) c[i] = BitConverter.ToSingle(tail.Slice(4 * i));
+        float f(int i) => c[i];
+        last_camera = new Camera(new Vector3(f(0), f(1), f(2)) * SCENE_SCALE, new Vector3(f(4), f(5), f(6)) * SCENE_SCALE,
+                                 new(f(8), f(9), f(10)), f(12));
         while (out_.Length % CHUNK != 0) w.Write((byte)0);
         return out_.ToArray();
     }
