@@ -102,7 +102,7 @@ public sealed unsafe class OldBackgrounds(FhLogger log) {
     // texture), the palette transfer (BITBLTBUF, TRXPOS, TRXREG, count, entry size 0x410), then count palettes of 0x400
     // bytes, without the transfers' tags.
     private const int OLD_HEADER = 0x50, OLD_TRANSFER = 0x20, PALETTE = 0x400, TAIL = 0x38;
-    private const float OLD_CAMERA_SCALE = 10;
+    private const float OLD_SCALE = 10; // camera and layer depths, against the world's units
 
     /// <summary>The model the PC files are built from (hiku17's) has this many layers; the background gets as many.</summary>
     public const int LAYERS = 4;
@@ -139,9 +139,19 @@ public sealed unsafe class OldBackgrounds(FhLogger log) {
             gs[best].AddRange(gs[best + 1]);
             gs.RemoveAt(best + 1);
         }
-        List<(float, int[])> result = [ .. gs.Select(g => (layers[g[0]].depth, g.ToArray())) ];
-        while (result.Count < LAYERS) result.Add((layers[gs[0][0]].depth, []));
+        List<(float, int[])> result = [ .. gs.Select(g => (pc_depth(layers[g[0]].depth), g.ToArray())) ];
+        while (result.Count < LAYERS) result.Add((pc_depth(layers[gs[0][0]].depth), []));
         return result;
+    }
+
+    /// <summary>
+    ///     An old layer depth in the game's units. The old format keeps depths at a tenth of the scale, like its camera
+    ///     (bvyt14's floor is 65..114 from the camera, its back layer 100). Past 400 they are squeezed, order kept, to
+    ///     stay well inside the far clip (Ch_SetClipZ 1000 in rcbgSceneSetMatrix).
+    /// </summary>
+    public static float pc_depth(float old) {
+        float d = old * OLD_SCALE;
+        return d <= 400 ? d : 400 + (d - 400) / 100;
     }
 
     // New layer (rcbgLayerLoad 0x0092b1a0), as the shipped 2D maps have it: a 0x90-byte header in 448-line units; one
@@ -180,10 +190,10 @@ public sealed unsafe class OldBackgrounds(FhLogger log) {
             w.Write(new byte[16]);                                    // +0xba, +0xbb
             w.Write(PALETTE_REGS); w.Write(2); w.Write(NEW_PALETTE); w.Write(new byte[2 * NEW_PALETTE]);
         }
-        // The old format keeps the camera at a tenth of the world's scale (the walk mesh lands on screen only at x10).
+        // The old format keeps the camera at a tenth of the world's scale (the walk mesh lands on the painted floor at x10).
         float[] cam = new float[TAIL / 4];
         for (int i = 0; i < cam.Length; i++) cam[i] = BitConverter.ToSingle(tail.Slice(4 * i));
-        for (int i = 0; i < 3; i++) { cam[i] *= OLD_CAMERA_SCALE; cam[4 + i] *= OLD_CAMERA_SCALE; }
+        for (int i = 0; i < 3; i++) { cam[i] *= OLD_SCALE; cam[4 + i] *= OLD_SCALE; }
         foreach (float f in cam.AsSpan(0, 13)) w.Write(f);
         w.Write(tail.Slice(13 * 4));
         last_camera = new Camera(new(cam[0], cam[1], cam[2]), new(cam[4], cam[5], cam[6]), new(cam[8], cam[9], cam[10]), cam[12]);
