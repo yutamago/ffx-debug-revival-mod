@@ -72,37 +72,88 @@ public sealed unsafe class OldBackgrounds(FhLogger log) {
         return out_.ToArray();
     }
 
-    // Old layer: 0x50-byte header (+4 w, +8 h, +0xc x, +0x10 y, +0x14 depth, +0x24/+0x28 texture u/v, +0x34 texture),
-    // the palette transfer (BITBLTBUF, TRXPOS, TRXREG, count, entry size 0x410), then count palettes of 0x400 bytes.
-    // New layer (rcbgLayerLoad 0x0092b1a0): 0x90-byte header in 448-line units, an animation count (+12 padding), two
-    // bytes (+14 padding), and a transfer (three registers, count, entry size, data); here without data.
-    private const int OLD_HEADER = 0x50, OLD_TRANSFER = 0x20, PALETTE = 0x400;
-    private const int NEW_HEADER = 0x90, TAIL = 0x38;
+    // Old layer: 0x50-byte header (+0 flags, +4 w, +8 h, +0xc x, +0x10 y, +0x14 depth, +0x24/+0x28 texture u/v, +0x34
+    // texture), the palette transfer (BITBLTBUF, TRXPOS, TRXREG, count, entry size 0x410), then count palettes of 0x400
+    // bytes, without the transfers' tags.
+    private const int OLD_HEADER = 0x50, OLD_TRANSFER = 0x20, PALETTE = 0x400, TAIL = 0x38;
 
-    private static byte[] convert_scene(ReadOnlySpan<byte> old) {
-        int count = BitConverter.ToInt32(old);
+    /// <summary>The model the PC files are built from (hiku17's) has this many layers; the background gets as many.</summary>
+    public const int LAYERS = 4;
+
+    /// <summary>Each old layer's flags and depth, in file order.</summary>
+    public static List<(uint flags, float depth)> old_layers(ReadOnlySpan<byte> scene) {
+        int count = BitConverter.ToInt32(scene);
         if (count is <= 0 or > 64) throw new InvalidDataException($"layer count {count}");
-        using MemoryStream out_ = new();
-        BinaryWriter w = new(out_);
-        w.Write(count); w.Write(new byte[12]);
+        List<(uint, float)> list = [];
         int p = 4;
         for (int i = 0; i < count; i++) {
-            byte[] h = new byte[NEW_HEADER];
-            old.Slice(p, 0x3c).CopyTo(h);
-            BitConverter.TryWriteBytes(h.AsSpan(0x08), BitConverter.ToInt32(h, 0x08) * 2); // height
-            BitConverter.TryWriteBytes(h.AsSpan(0x10), BitConverter.ToInt32(h, 0x10) * 2); // y
-            BitConverter.TryWriteBytes(h.AsSpan(0x40), 0x80808080u);                      // colour, 1.0 each
-            BitConverter.TryWriteBytes(h.AsSpan(0x44), 1f);                               // scale
-            BitConverter.TryWriteBytes(h.AsSpan(0x48), 1f);
-            w.Write(h);
-            w.Write(0); w.Write(new byte[12]);    // no animation
-            w.Write(new byte[16]);                // +0xba, +0xbb
-            w.Write(new byte[0x18]); w.Write(0); w.Write(0); // empty transfer
-            int palettes = BitConverter.ToInt32(old.Slice(p + OLD_HEADER + 0x18));
+            list.Add((BitConverter.ToUInt32(scene.Slice(p)), BitConverter.ToSingle(scene.Slice(p + 0x14))));
+            int palettes = BitConverter.ToInt32(scene.Slice(p + OLD_HEADER + 0x18));
             if (palettes is < 0 or > 16) throw new InvalidDataException($"layer {i}: {palettes} palettes");
             p += OLD_HEADER + OLD_TRANSFER + PALETTE * palettes;
         }
-        w.Write(old.Slice(p, TAIL));
+        return list;
+    }
+
+    /// <summary>
+    ///     Which old layers go into each of the <see cref="LAYERS"/> new ones: far to near, the neighbours with the
+    ///     smallest depth gap merge until there are few enough. A group takes its farthest member's depth, so characters
+    ///     between merged layers stay in front. Missing groups are empty and come last, so layer i is group i.
+    /// </summary>
+    public static List<(float depth, int[] members)> groups(List<(uint flags, float depth)> layers) {
+        List<List<int>> gs = [ .. Enumerable.Range(0, layers.Count).OrderByDescending(i => layers[i].depth).Select(i => new List<int> { i }) ];
+        while (gs.Count > LAYERS) {
+            int best = 0;
+            float gap = float.MaxValue;
+            for (int i = 0; i + 1 < gs.Count; i++) {
+                float d = layers[gs[i][^1]].depth - layers[gs[i + 1][0]].depth;
+                if (d < gap) { gap = d; best = i; }
+            }
+            gs[best].AddRange(gs[best + 1]);
+            gs.RemoveAt(best + 1);
+        }
+        List<(float, int[])> result = [ .. gs.Select(g => (layers[g[0]].depth, g.ToArray())) ];
+        while (result.Count < LAYERS) result.Add((layers[gs[0][0]].depth, []));
+        return result;
+    }
+
+    // New layer (rcbgLayerLoad 0x0092b1a0), as the shipped 2D maps have it: a 0x90-byte header in 448-line units; one
+    // animation (count, padding, one frame word, padding, and a transfer of the 8-bit image: rcbgSceneProcLayer reads
+    // it every frame); two bytes and padding; the palette transfer with two palettes. The PC version draws its own
+    // layers, so the pixels and palettes are left zero; every layer covers the screen.
+    private const int NEW_HEADER = 0x90, IMAGE = 0x38010, NEW_PALETTE = 0x410;
+    private static readonly byte[] IMAGE_REGS = Convert.FromHexString("00000000003c0813" + "0000000000000000" + "00020000c0010000");
+    private static readonly byte[] PALETTE_REGS = Convert.FromHexString("00000000002e0100" + "0000000000000000" + "1000000010000000");
+
+    private static byte[] convert_scene(ReadOnlySpan<byte> old) {
+        var layers = old_layers(old);
+        int p = 4;
+        for (int i = 0; i < layers.Count; i++) p += OLD_HEADER + OLD_TRANSFER + PALETTE * BitConverter.ToInt32(old.Slice(p + OLD_HEADER + 0x18));
+        ReadOnlySpan<byte> tail = old.Slice(p, TAIL);
+
+        using MemoryStream out_ = new();
+        BinaryWriter w = new(out_);
+        w.Write(LAYERS); w.Write(new byte[12]);
+        foreach (var (depth, members) in groups(layers)) {
+            byte[] h = new byte[NEW_HEADER];
+            BitConverter.TryWriteBytes(h.AsSpan(0x00), members.Length > 0 ? layers[members[0]].flags : 0x8000u);
+            BitConverter.TryWriteBytes(h.AsSpan(0x04), 512);
+            BitConverter.TryWriteBytes(h.AsSpan(0x08), 448);
+            BitConverter.TryWriteBytes(h.AsSpan(0x14), depth);
+            BitConverter.TryWriteBytes(h.AsSpan(0x2c), 256);
+            BitConverter.TryWriteBytes(h.AsSpan(0x30), 256);
+            BitConverter.TryWriteBytes(h.AsSpan(0x38), 0x44);
+            BitConverter.TryWriteBytes(h.AsSpan(0x40), 0x80808080u); // colour, 1.0 each
+            BitConverter.TryWriteBytes(h.AsSpan(0x44), 1f);          // scale
+            BitConverter.TryWriteBytes(h.AsSpan(0x48), 1f);
+            w.Write(h);
+            w.Write(1); w.Write(new byte[12]);                         // one animation
+            w.Write(0); w.Write(new byte[12]);                         // its frame
+            w.Write(IMAGE_REGS); w.Write(1); w.Write(IMAGE); w.Write(new byte[IMAGE]);
+            w.Write(new byte[16]);                                    // +0xba, +0xbb
+            w.Write(PALETTE_REGS); w.Write(2); w.Write(NEW_PALETTE); w.Write(new byte[2 * NEW_PALETTE]);
+        }
+        w.Write(tail);
         while (out_.Length % CHUNK != 0) w.Write((byte)0);
         return out_.ToArray();
     }
