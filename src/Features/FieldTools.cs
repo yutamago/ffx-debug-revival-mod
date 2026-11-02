@@ -8,7 +8,8 @@ namespace Yuta.DebugRevival.Features;
 ///     Field debug features: the debug pad's noclip and speed-up, random encounters, map jumps, the developer saves
 ///     and the PC port's free camera (docs/research/overlays.md 4.1, field.md).
 /// </summary>
-public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag flag, Dictionary<int, FieldTools.MapInfo> map_info) {
+public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag flag, StandInMaps stand_ins,
+                                     Dictionary<int, FieldTools.MapInfo> map_info) {
     public volatile bool noclip;
     /// <summary>Set when <see cref="JapaneseText"/> is in place, so maps without text in the game's language no longer crash.</summary>
     public bool shows_builtin_text;
@@ -35,7 +36,8 @@ public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag fla
 
     /// <param name="Entrances">How many entrances the map's script lists; 0 when unknown or none.</param>
     /// <param name="Title">The place name the save screen shows, in the game's language; empty when it has none.</param>
-    public sealed record MapEntry(int Id, string Name, string Title, JumpRisk Risk, int Entrances);
+    /// <param name="StandIn">An unfinished area the mod gives a script of its own (<see cref="StandInMaps"/>).</param>
+    public sealed record MapEntry(int Id, string Name, string Title, JumpRisk Risk, int Entrances, bool StandIn = false);
 
     /// <summary>A developer save: the place and story progress it starts at.</summary>
     public sealed record DevSave(int Number, string Title, int Story, int Map);
@@ -111,14 +113,21 @@ public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag fla
     private const uint ETERNAL_CALM_FIRST = 0x00c33468, SOFT_RESET_MAP = 0x00c33480;
     private const int ETERNAL_CALM_COUNT = 7;
 
+    public const int FILES_PER_MAP = 0x12;
+
+    /// <summary>The cdrom.fnd entry of the map's script (its other files follow); -1 without the table.</summary>
+    internal static int event_loc(int map) {
+        const int EVENT_MODULE = 0xc;
+        nint firsts = *(nint*)Mem.at(CD_LIB + 0x2c);
+        if (firsts == 0 || map < 0) return -1;
+        return *(short*)(firsts + EVENT_MODULE * 2) + map * FILES_PER_MAP;
+    }
+
     /// <summary>The map's script file name in cdrom.fnd, 0 when its entry is empty, -1 in HDD mode (no names).</summary>
-    private static nint script_name(int map) {
-        const int EVENT_MODULE = 0xc, FILES_PER_MAP = 0x12;
+    internal static nint script_name(int map) {
         nint names = *(nint*)Mem.at(CD_LIB + 0x30);
         if (names == 0) return -1;
-        nint firsts = *(nint*)Mem.at(CD_LIB + 0x2c);
-        if (firsts == 0 || map < 0) return 0;
-        int loc = *(short*)(firsts + EVENT_MODULE * 2) + map * FILES_PER_MAP;
+        int loc = event_loc(map);
         if (loc < 0 || loc >= *(int*)names) return 0;
         uint start = *(uint*)(names + 4 + 4 * loc), end = *(uint*)(names + 8 + 4 * loc);
         return (int)(end - start) > 0 ? names + (nint)start : 0;
@@ -130,6 +139,7 @@ public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag fla
         if (_risks.TryGetValue(map, out JumpRisk known)) return known;
         JumpRisk r;
         if (map == Mem.i32(SOFT_RESET_MAP)) r = JumpRisk.Reset;
+        else if (stand_ins.covers(map)) r = JumpRisk.None;
         else if ((uint)(map - Mem.i32(ETERNAL_CALM_FIRST)) < ETERNAL_CALM_COUNT) r = JumpRisk.None;
         else r = script_name(map) switch {
             -1 => JumpRisk.None,
@@ -147,7 +157,7 @@ public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag fla
     }
 
     // The loaders' own test (sceOpen maps "host0:/x" to "/ffx_ps2/x"): unify the path, then fiosIsFileExist.
-    private static bool file_exists(string path) {
+    internal static bool file_exists(string path) {
         byte[] bytes = Encoding.ASCII.GetBytes(path + "\0");
         byte* unified = stackalloc byte[0x400];
         fixed (byte* p = bytes) Calls.fiosUnifyFilename.fnptr!((nint)p, (nint)unified, 0x400);
@@ -253,7 +263,9 @@ public sealed unsafe class FieldTools(FhLogger log, Guards guards, DebugFlag fla
             }
             int id = *(int*)(e + 0xc);
             MapInfo info = map_info.GetValueOrDefault(id, new MapInfo(0, -1));
-            list[i] = new MapEntry(id, sb.ToString(), place_name(info.Place), risk(id), info.Entrances);
+            bool stand_in = stand_ins.covers(id);
+            list[i] = stand_in ? new MapEntry(id, sb.ToString(), "unused area", risk(id), 1, StandIn: true)
+                               : new MapEntry(id, sb.ToString(), place_name(info.Place), risk(id), info.Entrances);
         }
         maps = [ .. list.OrderBy(m => m.Id) ];
         List<DevSave> saves = [];

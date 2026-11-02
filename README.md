@@ -48,7 +48,9 @@ the sound. With the F10/F11 box ticked, those keys toggle the two.
 The list holds the developers' internal map names, with the place name the
 save screen shows, in your game's language, where the map has one. Maps in red would crash or
 freeze the game, because the PC version lacks their script, so the mod refuses
-them. Map 399 sends the game back to the title screen; the mod asks first. The
+them. Three unfinished areas (maps 262, 350 and 373) have their geometry but no
+script; the mod lends them the camera test map's script, so you can walk around
+in them. Map 399 sends the game back to the title screen; the mod asks first. The
 entrance slider shows how many entrances the map has. Jumping out of story
 order can break progression, and some maps may still get stuck if the story
 isn't where their script expects. **Model viewer** turns the debug flag on

@@ -9,7 +9,7 @@ the function). INFERRED = concluded, not read.
 | Code | Ids | Effect |
 |---|---|---|
 | `no_name` | 47: 3-15, 24-40, 66, 101, 111, 114, 246, 251, 278, 281, 328, 343-346, 378, 379, 400, 401 | crash (NULL read) |
-| `no_file` | 18: 186, 216, 228, 229, 231, 232, 233, 262, 300, 304, 342, 350, 353, 357, 358, 360, 369, 373 | hang (endless loop) |
+| `no_file` | 18: 186, 216, 228, 229, 231, 232, 233, 262, 300, 304, 342, 350, 353, 357, 358, 360, 369, 373 | hang (endless loop); the mod gives 262, 350 and 373 a stand-in script ([stand-in-maps.md](stand-in-maps.md)) |
 | `soft_reset` | 1: 399 | no jump; the game resets |
 | (none) | the other 336 | no crash found in the load path |
 
