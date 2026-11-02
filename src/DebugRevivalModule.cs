@@ -17,6 +17,7 @@ public sealed class DebugRevivalModule : FhModule {
     private JapaneseText?   _jp_text;
     private StandInMaps?    _stand_ins;
     private OldBackgrounds? _old_backgrounds;
+    private RoomFiles?      _rooms;
     private DebugLog?       _log;
     private Guards?         _guards;
     private DebugFlag?      _flag;
@@ -57,7 +58,9 @@ public sealed class DebugRevivalModule : FhModule {
         _field.shows_builtin_text = _jp_text.init(this);
         warn_unless(_field.shows_builtin_text, "Japanese text for maps without text in the game's language");
         warn_unless(_stand_ins.init(this), "stand-in scripts for unfinished areas");
-        _stand_ins.floor_only_allowed = _old_backgrounds.init(this, new DirectoryInfo(Path.Join(mod_context.Paths.EflDir.FullName, "x")));
+        DirectoryInfo efl = new(Path.Join(mod_context.Paths.EflDir.FullName, "x"));
+        _stand_ins.floor_only_allowed = _old_backgrounds.init(this, efl);
+        _rooms = new RoomFiles(_logger, efl);
         warn_unless(_stand_ins.floor_only_allowed, "old-format backgrounds of two unfinished areas");
         warn_unless(_log.init(this),     "debug log");
         warn_unless(_gu.init(this),      "PS2 debug menu");
@@ -93,6 +96,7 @@ public sealed class DebugRevivalModule : FhModule {
             _battle!.update();
             _field!.update();
             _stand_ins!.update();
+            if (_stand_ins.floor_only_allowed) _rooms!.update();
             _panels!.snapshot();
         }
         catch (Exception e) { _logger.Error($"snapshot: {e}"); }
