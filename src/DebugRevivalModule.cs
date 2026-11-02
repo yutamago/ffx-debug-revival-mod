@@ -92,6 +92,7 @@ public sealed class DebugRevivalModule : FhModule {
             _flag!.update();
             _battle!.update();
             _field!.update();
+            _stand_ins!.update();
             _panels!.snapshot();
         }
         catch (Exception e) { _logger.Error($"snapshot: {e}"); }

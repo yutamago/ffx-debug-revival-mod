@@ -167,6 +167,8 @@ public static class Calls {
     public static FhCallHandle<D.IntToPtrFn> PcFileName => h<D.IntToPtrFn>(0x00a42c00);
     /// <summary>cdecl (module, file) -> buffer: reads a file whole and waits for it; the .ebp is (0xc, map * 0x12).</summary>
     public static FhCallHandle<D.IntIntToPtrFn> TkCdReadWithMallocWithMessage => h<D.IntIntToPtrFn>(0x0088d2c0);
+    /// <summary>cdecl () -> the player's character (g_ChrArray entry; +0xc x, +0x10 y, +0x14 z), 0 without one.</summary>
+    public static FhCallHandle<D.RetPtrFn> Sg_GetPlayer => h<D.RetPtrFn>(0x0082d860);
     /// <summary>cdecl (data): loads a YNDT background (rcbgLoadBin) when the map system is up.</summary>
     public static FhCallHandle<D.PtrFn> Yn_PreBgSetData => h<D.PtrFn>(0x0091aa60);
     /// <summary>cdecl (on): random encounters on/off (g_BattleEnable).</summary>
@@ -235,6 +237,8 @@ public static class G {
     public const uint IdCount     = 0x01301a88; // i32
     public const uint IdVertices  = 0x01301a8c; // ptr
     public const uint IdZoom      = 0x01301a90; // f32
+
+    public const uint YnMapSystem = 0x0193bf80; // ptr: +0 the map, whose +8 is the 2D scene (+4 layers, +8 0xc0 each; +0x68 eye, +0x78 target, +0xa8 fov)
 
     // free camera gates
     public const uint AsyncControllerOn = 0x0133c930; // u8

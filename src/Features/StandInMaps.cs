@@ -16,10 +16,13 @@ public sealed unsafe class StandInMaps(FhLogger log) {
     /// version draws. The background is in an older format; <see cref="OldBackgrounds"/> rewrites it.</param>
     /// <param name="Borrowed">The PS2 map's folder when the map table has no pair for it: the pair at
     /// <paramref name="MapIndex"/>, whose own files are missing, names this one's instead.</param>
-    public readonly record struct StandIn(int Map, short MapIndex, string Area, bool FloorOnly = false, string? Borrowed = null);
+    /// <param name="Fixed">A 2D map: its background is painted for one camera, which the game sets from the background
+    /// data (rcbgSceneSetMatrix); camtest0's own follow camera would override it for the characters.</param>
+    public readonly record struct StandIn(int Map, short MapIndex, string Area, bool FloorOnly = false, string? Borrowed = null,
+                                          bool Fixed = true);
 
     public static readonly StandIn[] ALL = [
-        new(262, 397, "hiku17"), new(350, 398, "hiku18"), new(373, 282, "ikai07"),
+        new(262, 397, "hiku17"), new(350, 398, "hiku18", Fixed: false), new(373, 282, "ikai07"),
         new(360, 409, "bvyt15", FloorOnly: true),
         new(216, 21, "bvyt14", FloorOnly: true, Borrowed: "bvyt/bvyt14"),    // pair 21: znkd11
         // hiku12 (304) and lchb19 (300) ship an empty .vpa (a bare MAP1 header), which crashes the map loader.
@@ -33,11 +36,17 @@ public sealed unsafe class StandInMaps(FhLogger log) {
     private const int SET_POSITION = 0x24;
     private static readonly byte[] SET_POSITION_CODE = [ 0xae, 87, 0, 0xaf, 8, 0, 0xae, 17, 0, 0xd8, 0x13, 0 ];
     private const int Y_CONSTANT = 8;
+    // Worker 0's set-up, after the encounter calls: pushimm 0, -1, 0; func_facc 0x6027 (CamRefSetTarget); pushfc f9,
+    // f11, f10; func_facc 0x6004 (CamSetPolar).
+    private const int FOLLOW_CAMERA = 0x48;
+    private static readonly byte[] FOLLOW_CAMERA_CODE = Convert.FromHexString("ae0000aeffffae0000d82760af0900af0b00af0a00d80460");
+    private const byte OP_NOP = 0x00, OP_PUSHIMM = 0xae;
     private const byte OP_JMP = 0xb0, OP_PUSHFC = 0xaf, OP_END = 0x3c;
 
     private bool _verified;
     private volatile bool _active;
     private int _patched_map = -1;
+    private int _report_frame; // counts down after a stand-in loads; at 1, what the game set up goes to the log
     private readonly HashSet<int> _usable = [];
     // (cdrom.fnd entry, the name it gives instead) of the borrowed pairs; NUL-terminated, never freed
     private readonly Dictionary<int, nint> _names = [];
@@ -141,6 +150,31 @@ public sealed unsafe class StandInMaps(FhLogger log) {
         return buf;
     }
 
+    /// <summary>Game thread, after each update.</summary>
+    public void update() {
+        if (_report_frame <= 0 || --_report_frame > 0) return;
+        try {
+            nint chr = Calls.Sg_GetPlayer.fnptr!();
+            string player = chr != 0 ? $"({*(float*)(chr + 0xc):0.#}, {*(float*)(chr + 0x10):0.#}, {*(float*)(chr + 0x14):0.#})" : "none";
+            nint sys = *(nint*)Mem.at(G.YnMapSystem);
+            nint m = sys != 0 ? *(nint*)sys : 0;
+            nint scene = m != 0 ? *(nint*)(m + 8) : 0;
+            string bg = "no 2D scene";
+            if (scene != 0) {
+                float* f = (float*)scene;
+                int layers = *(int*)(scene + 4);
+                nint list = *(nint*)(scene + 8);
+                StringBuilder depths = new();
+                for (int i = 0; i < Math.Min(layers, 8) && list != 0; i++) depths.Append($" {*(float*)(list + 0xc0 * i + 0x14):0.#}");
+                bg = $"eye ({f[0x68 / 4]:0.##}, {f[0x6c / 4]:0.##}, {f[0x70 / 4]:0.##}) target ({f[0x78 / 4]:0.##}, {f[0x7c / 4]:0.##}, {f[0x80 / 4]:0.##}) fov {f[0xa8 / 4]:0.#}, {layers} layers at{depths}";
+            }
+            log.Info($"stand-in check: player {player}; {bg}");
+        }
+        catch (Exception e) {
+            log.Error($"stand-in check: {e}");
+        }
+    }
+
     // The block's offsets; false when camtest0 differs from the one this was written for.
     private static bool locate(nint ebp, out nint block, out nint code, out nint worker0, out nint worker2) {
         block = code = worker0 = worker2 = 0;
@@ -165,9 +199,20 @@ public sealed unsafe class StandInMaps(FhLogger log) {
         if (*(byte*)loop != OP_JMP || *(byte*)camera != OP_PUSHFC) return false;
         nint entrances = block + *(int*)(block + 4);
         if (*(int*)(block + 4) == 0 || *(int*)(block + 0x2c) != 0 && has_language_maps(block)) return false;
+        // Worker 1 attaches the camera (e0) and keeps it on the player (e1).
+        nint w1 = block + *(int*)(block + 0x38 + 4);
+        nint attach = entry(block, code, w1, 0), follow = entry(block, code, w1, 1);
+        Span<byte> set_up = new((void*)(code + FOLLOW_CAMERA), FOLLOW_CAMERA_CODE.Length);
+        if (!set_up.SequenceEqual(FOLLOW_CAMERA_CODE) || *(byte*)attach != OP_PUSHIMM || *(byte*)follow != OP_PUSHIMM) return false;
+
         *(short*)entrances = s.MapIndex;
         *(byte*)loop = OP_END;
         *(byte*)camera = OP_END;
+        if (s.Fixed) {
+            set_up.Fill(OP_NOP);
+            *(byte*)attach = OP_END;
+            *(byte*)follow = OP_END;
+        }
         return true;
     }
 
@@ -198,6 +243,7 @@ public sealed unsafe class StandInMaps(FhLogger log) {
             *(short*)(p + 7) = (short)MathF.Round(z);
             *(float*)(block + *(int*)(w0 + 0x1c) + 4 * Y_CONSTANT) = y;
             log.Info($"stand-in for map {map}: player at ({x:0.#}, {y:0.#}, {z:0.#})");
+            _report_frame = 60;
         }
         catch (Exception e) {
             log.Error($"stand-in for map {map}: {e}");
